@@ -1,0 +1,11 @@
+A Record	@ 			<your ip address>
+A Record	mail 			<your ip address>
+CNAME Record	autoconfig 		mail.<your domain>.
+CNAME Record	autodiscover		mail.<your domain>.
+CNAME Record	em886747		return.smtp2go.net.
+CNAME Record	link			linktrack.smtp2go.net.
+CNAME Record	s886747._domainkey	dkim.smtp2go.net.
+TXT Record	@			v=spf1 include:spf.smtp2go.com ~all
+TXT Record	_dmarc			v=DMARC1; p=quarantine; rua=mailto:postmaster@<your domain>
+TXT Record	default._domainkey	v=DKIM1; k=rsa; p=MIGfMA....
+MX Record 	@ 			mail.<your domain>.  (priority 10)
