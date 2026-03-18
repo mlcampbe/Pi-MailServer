@@ -8,6 +8,7 @@ echo "======================================"
 # Stop services
 echo "Stopping services..."
 
+systemctl stop unbound 2>/dev/null || true
 systemctl stop postfix 2>/dev/null || true
 systemctl stop dovecot 2>/dev/null || true
 systemctl stop rspamd 2>/dev/null || true
@@ -16,6 +17,7 @@ systemctl stop fail2ban 2>/dev/null || true
 
 
 # Disable services
+systemctl disable unbound 2>/dev/null || true
 systemctl disable postfix 2>/dev/null || true
 systemctl disable dovecot 2>/dev/null || true
 systemctl disable rspamd 2>/dev/null || true
@@ -31,8 +33,9 @@ dovecot-core dovecot-* \
 rspamd \
 redis-server \
 fail2ban \
-certbot \
-mailutils
+mailutils \
+unbound \
+certbot
 
 
 echo "Removing dependencies..."
@@ -48,6 +51,7 @@ rm -rf /etc/rspamd
 rm -rf /etc/redis
 rm -rf /etc/fail2ban
 #rm -rf /etc/letsencrypt
+rm -rf /etc/unbound/unbound.conf.d
 
 
 echo "Removing runtime + data directories..."

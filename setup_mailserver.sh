@@ -42,6 +42,7 @@ rspamd redis-server \
 certbot \
 fail2ban \
 ufw \
+unbound \
 mailutils curl
 
 systemctl stop postfix
@@ -119,9 +120,9 @@ smtpd_helo_restrictions =
     reject_non_fqdn_helo_hostname
 
 # Relay Restrictions (Modern Postfix logic)
-smtpd_relay_restrictions = 
-    permit_mynetworks, 
-    permit_sasl_authenticated, 
+smtpd_relay_restrictions =
+    permit_mynetworks,
+    permit_sasl_authenticated,
     defer_unauth_destination
 
 # Recipient Restrictions & RBLs
@@ -292,7 +293,8 @@ HASHED_PASS=$(rspamadm pw -p "$RSPAMDPASS" -q)
 cat > /etc/rspamd/local.d/worker-controller.inc <<EOF
 bind_socket = "0.0.0.0:11334";
 secure_ip = "127.0.0.1, $LAN_SUBNET";
-password ="$HASHED_PASS";
+password = "$HASHED_PASS";
+enable_password = "$HASHED_PASS";
 EOF
 
 # ----------------------------
@@ -376,6 +378,17 @@ profile "default" {
 EOF
 
 # ----------------------------
+# OPTIONS CONFIG
+# ----------------------------
+cat > /etc/rspamd/local.d/options.inc <<EOF
+dns {
+    nameserver = ["127.0.0.1:5353"];
+    timeout = 2s;
+    retransmits = 2;
+}
+EOF
+
+# ----------------------------
 # HEADER CONFIG
 # ----------------------------
 cat > /etc/rspamd/local.d/actions.conf <<EOF
@@ -385,25 +398,20 @@ EOF
 cat > /etc/rspamd/local.d/milter.conf <<EOF
 discard_on_reject = false;
 quarantine_on_reject = false;
-spam_header = "X-Spam-Flag";
 EOF
 
 cat > /etc/rspamd/local.d/milter_headers.conf <<EOF
-use = ["x-spam-status", "x-spam-flag"];
+use = ["x-spam-status", "spam-header"];
 authenticated_headers = [];
-
-# Add these for visibility while we debug
 extended_spam_headers = false;
-
 skip_local = false;
 skip_authenticated = true;
 
-# Map the "add header" action to these routines
 routines {
-  x-spam-status {
+  "x-spam-status" {
     header = "X-Spam-Status";
   }
-  x-spam-flag {
+  "spam-header" {
     header = "X-Spam-Flag";
     value = "YES";
   }
@@ -447,6 +455,18 @@ enabled = true
 EOF
 
 # ----------------------------
+# UNBOUND
+# ----------------------------
+echo "Configuring Unbound..."
+cat > /etc/unbound/unbound.conf.d/pi.conf <<EOF
+server:
+    interface: 127.0.0.1
+    port: 5353
+    access-control: 127.0.0.0/8 allow
+    do-ip6: no
+EOF
+
+# ----------------------------
 # FIREWALL
 # ----------------------------
 echo "Configuring Firewall..."
@@ -472,7 +492,8 @@ chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-mail.sh
 # START SERVICES
 # ----------------------------
 echo "Restarting Services..."
-systemctl enable redis-server rspamd postfix dovecot fail2ban
+systemctl enable redis-server rspamd postfix dovecot fail2ban unbound
+systemctl restart unbound
 systemctl restart redis-server
 systemctl restart rspamd
 systemctl restart postfix
