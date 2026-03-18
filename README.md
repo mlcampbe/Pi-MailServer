@@ -80,3 +80,10 @@ The server uses system users. To add a new mailbox:
 ```bash
 sudo useradd -d /mnt/mailserver/username -m -s /bin/false username
 sudo passwd username
+
+### 3. Scheduled Backups (3:00 AM)
+Automate your data protection by adding the backup script to the root user's crontab. This triggers a full backup of configs and mail every night at 3:00 AM:
+```bash
+sudo crontab -e
+
+Append the following line to the bottom of the file:
