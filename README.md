@@ -13,8 +13,9 @@ This repository contains a comprehensive Bash script to automate the installatio
     * Mandatory TLS 1.2+ (disables legacy SSLv2/v3 and TLS 1.0/1.1).
     * Let's Encrypt integration with automated renewal hooks.
     * Fail2Ban for brute-force protection on SMTP and IMAP.
+    * Integrates Unbound as a local DNS recursor to avoid rate-limiting on RBL lookups.
 * **Advanced Spam Defense**:
-    * **Rspamd**: A high-performance filtering engine using Redis for Bayes learning and neural networks.
+    * **Rspamd**: Enables Greylisting, Bayes learning, and Neural networks within Rspamd
     * **Postscreen**: Stops bots at the front door before they hit the heavy SMTP processes.
     * **Sieve**: Server-side rules to automatically move spam to the "Junk" folder.
 * **Outbound Delivery**: Pre-configured for **SMTP2GO** relay to ensure high deliverability and avoid residential IP blacklisting.
@@ -69,26 +70,38 @@ Open `setup_mailserver.sh` and update the variables in the **Variables** section
 
 ## Post-Installation Steps
 
-1. **DNS Records**:
-To ensure your mail isn't rejected by others, you must set up your DNS records:
-* **MX Record**: `mail.yourdomain.com` pointing to your IP.
-* **DKIM**: Run `cat /var/lib/rspamd/dkim/yourdomain.com.txt` and add the resulting public key as a TXT record in your DNS.
-* **SPF**: Add `v=spf1 include:spf.smtp2go.com ~all`.
+1. **DNS Records**
+
+   To ensure your mail isn't rejected by others, you must set up your DNS records:
+
+   * **MX Record**: `mail.yourdomain.com` pointing to your IP.
+   * **DKIM**: Run the following and add the resulting public key as a TXT record in your DNS:
+
+     ```bash
+     cat /var/lib/rspamd/dkim/yourdomain.com.txt
+     ```
+
+   * **SPF**: Add the following TXT record to your DNS:
+
+     ```text
+     v=spf1 include:spf.smtp2go.com ~all
+     ```
 
 2. **Manage Users**
-The server uses system users. To add a new mailbox:
-```bash
-$ sudo useradd -d /mnt/mailserver/username -m -s /bin/false username
-$ sudo passwd username
+
+   The server uses system users. To add a new mailbox:
+
+   ```bash
+   sudo useradd -d /mnt/mailserver/username -m -s /bin/false username
+   sudo passwd username
 
 3. **Scheduled Backups (3:00 AM)**
-Automate your data protection by adding the backup script to the root user's crontab. This triggers a full backup of configs and mail every night at 3:00 AM:
-```bash
-sudo crontab -e
 
-Append the following line to the bottom of the file:
-```bash
-0 3 * * * /usr/local/bin/backup_mailserver.sh >> /var/log/mailserver_backup.log 2>&1
+   Automate nightly backups by adding the backup script to the root user's crontab:
 
-[!IMPORTANT]
-Network Requirements: Ensure your router/firewall forwards ports 25, 587, and 993 to the server IP. If using UniFi, ensure the "mDNS" feature is enabled if your mail clients are on a different VLAN than the server.
+   ```bash
+   0 3 * * * /usr/local/bin/backup_mailserver.sh >> /var/log/mailserver_backup.log 2>&1
+
+
+> **⚠️ IMPORTANT:**  
+> Network Requirements: Ensure your router/firewall forwards ports **25, 587, and 993** to the server IP.  
