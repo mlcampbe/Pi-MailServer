@@ -21,8 +21,14 @@ ADMINEMAIL="email"
 # Password for the rspamd Web UI
 RSPAMDPASS="pass"
 
+# Key for using Free Spamhaus DQS
+SPAMHAUSKEY = "key"
+
 # Mail storage location
 MAILDIR="/mnt/mailserver"
+
+# Password for postmaster user
+POSTMASTER_PASS="pass"
 
 # ----------------------------
 # Main script starts here
@@ -64,14 +70,23 @@ ufw delete allow 80
 # Create external mail storage
 # ----------------------------
 echo "Preparing mail storage at $MAILDIR..."
+getent group vmail >/dev/null || groupadd -g 5000 vmail
+getent passwd vmail >/dev/null || useradd -g vmail -u 5000 vmail -d "$MAILDIR" -m
 mkdir -p $MAILDIR
-chmod 777 $MAILDIR
+chown -R vmail:vmail $MAILDIR
+chmod 700 $MAILDIR
 
 # ----------------------------
 # POSTFIX CONFIG
 # ----------------------------
 echo "Configuring Postfix..."
-sed -i "s/^smtp/#smtp/" /etc/postfix/master.cf
+# Generate the postfix_accounts.cf file and the postmaster account
+HASHED_PASS=$(doveadm pw -s SHA512-CRYPT -p $POSTMASTER_PASS)
+echo "postmaster:${HASHED_PASS}" > /etc/dovecot/postfix_accounts.cf
+mkdir -p $MAILDIR/postmaster/Maildir
+chown -R vmail:vmail $MAILDIR/postmaster
+chown root:dovecot /etc/dovecot/postfix_accounts.cf
+chmod 640 /etc/dovecot/postfix_accounts.cf
 
 cat > /etc/postfix/main.cf <<EOF
 # Global Settings
@@ -83,20 +98,23 @@ myorigin = \$mydomain
 # Network Settings
 inet_interfaces = all
 inet_protocols = ipv4
-mydestination = \$myhostname, localhost.\$mydomain, localhost, \$mydomain
+mydestination = \$myhostname, localhost.\$mydomain, localhost
 mynetworks = 127.0.0.0/8, 192.168.0.0/16
 relay_domains = \$mydestination
 append_dot_mydomain = yes
 respectful_logging = yes
 
-# Mailbox Settings
+# User Settings
+virtual_mailbox_domains = $DOMAIN
+virtual_transport = lmtp:unix:private/dovecot-lmtp
 home_mailbox = Maildir/
-mailbox_transport = lmtp:unix:private/dovecot-lmtp
+# Since we want system users to use "regular mail" (local /etc/passwd),
+# we remove mailbox_transport so it doesn't go to Dovecot.
+# mailbox_transport = lmtp:unix:private/dovecot-lmtp
 
 # TLS/SSL Security
 smtpd_tls_cert_file=/etc/letsencrypt/live/$MAILHOST/fullchain.pem
 smtpd_tls_key_file=/etc/letsencrypt/live/$MAILHOST/privkey.pem
-
 smtpd_tls_security_level = may
 smtp_tls_security_level = encrypt
 
@@ -161,12 +179,13 @@ postscreen_dnsbl_threshold = 2
 postscreen_dnsbl_action = enforce
 EOF
 
-cat >> /etc/postfix/master.cf <<EOF
-smtp      inet  n       -       y       -       1       postscreen
-smtpd     pass  -       -       y       -       -       smtpd
-dnsblog   unix  -       -       y       -       0       dnsblog
-tlsproxy  unix  -       -       y       -       0       tlsproxy
+sed -i '/^smtp[[:space:]]\+inet.*smtpd$/ s/^/#/' /etc/postfix/master.cf
+sed -i '/^#smtp[[:space:]]\+inet.*postscreen$/ s/^#//' /etc/postfix/master.cf
+sed -i '/^#smtpd[[:space:]]\+pass.*smtpd$/ s/^#//' /etc/postfix/master.cf
+sed -i '/^#dnsblog[[:space:]]\+unix.*dnsblog$/ s/^#//' /etc/postfix/master.cf
+sed -i '/^#tlsproxy[[:space:]]\+unix.*tlsproxy$/ s/^#//' /etc/postfix/master.cf
 
+cat >> /etc/postfix/master.cf <<EOF
 submission inet n - y - - smtpd
  -o smtpd_tls_security_level=encrypt
  -o smtpd_sasl_auth_enable=yes
@@ -184,35 +203,61 @@ cat > /etc/postfix/sasl_passwd <<EOF
 EOF
 postmap /etc/postfix/sasl_passwd
 chmod 600 /etc/postfix/sasl_passwd
+chmod 600 /etc/postfix/sasl_passwd.db
 
 # ----------------------------
 # DOVECOT CONFIG
 # ----------------------------
 echo "Configuring Dovecot..."
-sed -i "/protocols =/ s/^#//; s/pop3/lmtp/" /etc/dovecot/dovecot.conf
+sed -i 's/^#protocols =.*/protocols = imap lmtp sieve/' /etc/dovecot/dovecot.conf
 
-sed -i "s|^mail_inbox_path.*|#&|" /etc/dovecot/conf.d/10-mail.conf
-sed -i "s|^mail_home.*|#&|" /etc/dovecot/conf.d/10-mail.conf
 sed -i "s|^mail_driver.*|mail_driver = maildir|" /etc/dovecot/conf.d/10-mail.conf
-sed -i "s|^mail_path.*|mail_path = ~/Maildir\nmaildir_stat_dirs = yes|" /etc/dovecot/conf.d/10-mail.conf
+sed -i "s|^\(mail_home[[:space:]]*=[[:space:]]*\)/home|\1$MAILDIR|" /etc/dovecot/conf.d/10-mail.conf
+sed -i "s|^mail_path[[:space:]]*=[[:space:]]*.*|mail_path = $MAILDIR/%{user \| username}/Maildir|" /etc/dovecot/conf.d/10-mail.conf
+sed -i "s|^mail_inbox_path.*|#&|" /etc/dovecot/conf.d/10-mail.conf
 
-sed -i "/unix_listener lmtp {/,/}/c \\
-    unix_listener /var/spool/postfix/private/dovecot-lmtp {\\
-      mode = 0660\\
-      user = postfix\\
-      group = postfix\\
-    }" /etc/dovecot/conf.d/10-master.conf
-
-# Postfix auth socket
-cat >> /etc/dovecot/conf.d/10-master.conf <<EOF
+cat > /etc/dovecot/conf.d/15-custom.conf <<EOF
+service lmtp {
+  unix_listener /var/spool/postfix/private/dovecot-lmtp {
+    mode = 0660
+    user = postfix
+    group = postfix
+  }
+}
 service auth {
- unix_listener /var/spool/postfix/private/auth {
-  mode = 0660
-  user = postfix
-  group = postfix
+  unix_listener auth-userdb {
+    #mode = 0666
+    #user =
+    #group =
+  }
+  # Postfix smtp-auth
+  unix_listener /var/spool/postfix/private/auth {
+   mode = 0660
+   user = postfix
+   group = postfix
  }
 }
 EOF
+
+cat > /etc/dovecot/conf.d/auth-passwdfile.conf.ext <<EOF
+passdb passwd-file {
+  driver = passwd-file
+  passwd_file_path = /etc/dovecot/postfix_accounts.cf
+}
+
+userdb static {
+  driver = static
+  fields {
+    uid=5000
+    gid=5000
+    home=$MAILDIR/%{user | username}
+  }
+}
+EOF
+
+sed -i 's/^#auth_mechanisms = plain login/auth_mechanisms = plain login/' /etc/dovecot/conf.d/10-auth.conf
+sed -i 's/^!include auth-system.conf.ext/#!include auth-system.conf.ext/' /etc/dovecot/conf.d/10-auth.conf
+sed -i 's/^#!include auth-passwdfile.conf.ext/!include auth-passwdfile.conf.ext/' /etc/dovecot/conf.d/10-auth.conf
 
 # Setup sieve filtering
 sed -i "/#sieve_script default {/,/#}/ {
@@ -242,6 +287,7 @@ sed -i "/protocol lmtp {/,/}/ {
     s/^[[:blank:]]*#[[:blank:]]*sieve/    sieve/
     s/^[[:blank:]]*#[[:blank:]]*}/  }/
 }" /etc/dovecot/conf.d/20-lmtp.conf
+sed -i 's/^\s*auth_username_format = %{user | username | lower}/  # &/' /etc/dovecot/conf.d/20-lmtp.conf
 
 sed -i "/protocol lda {/,/}/ {
     s/^[[:blank:]]*#[[:blank:]]*mail_plugins/  mail_plugins/
@@ -250,7 +296,7 @@ sed -i "/protocol lda {/,/}/ {
 }" /etc/dovecot/conf.d/15-lda.conf
 
 mkdir /etc/dovecot/sieve
-cat >> /etc/dovecot/sieve/move-to-junk.sieve <<EOF
+cat > /etc/dovecot/sieve/move-to-junk.sieve <<EOF
 require ["fileinto"];
 if anyof (
     header :contains "Subject" "***SPAM***",
@@ -267,6 +313,7 @@ cat > /etc/dovecot/conf.d/10-ssl.conf <<EOF
 ssl = required
 ssl_server_cert_file = /etc/letsencrypt/live/$MAILHOST/fullchain.pem
 ssl_server_key_file = /etc/letsencrypt/live/$MAILHOST/privkey.pem
+ssl_min_protocol = TLSv1.2
 EOF
 
 # Auto-create standard IMAP folders
@@ -298,6 +345,25 @@ enable_password = "$HASHED_PASS";
 EOF
 
 # ----------------------------
+# DISABLE SENDERSCORE
+# ----------------------------
+cat > /etc/rspamd/local.d/rbl.conf <<EOF
+rbls {
+  senderscore {
+    enabled = false;
+  }
+  senderscore_reputation {
+    enabled = false;
+  }
+  spamhaus {
+    # Replace the bracketed part with your actual key
+    rbl = "$SPAMHAUSKEY.zen.dq.spamhaus.net";
+    enabled = true;
+  }
+}
+EOF
+
+# ----------------------------
 # DKIM
 # ----------------------------
 rspamadm dkim_keygen -d $DOMAIN -s default -k /var/lib/rspamd/dkim/$DOMAIN.key
@@ -315,6 +381,7 @@ EOF
 # ----------------------------
 cat > /etc/rspamd/local.d/greylist.conf <<EOF
 enabled = true;
+use_score = true
 timeout = 5m;
 expire = 1d;
 EOF
@@ -333,7 +400,7 @@ EOF
 cat > /etc/rspamd/local.d/classifier-bayes.conf <<EOF
 backend = "redis";
 min_tokens = 11;
-min_learns = 200;
+min_learns = 20;
 autolearn = true;
 statfile { symbol = "BAYES_SPAM"; spam = true; }
 statfile { symbol = "BAYES_HAM"; spam = false; }
@@ -392,7 +459,11 @@ EOF
 # HEADER CONFIG
 # ----------------------------
 cat > /etc/rspamd/local.d/actions.conf <<EOF
-add_header = 0
+no_action = 0;
+add_header = 2.0;
+rewrite_subject = 7.0;
+greylist = 4.0;
+reject = 50.0;
 EOF
 
 cat > /etc/rspamd/local.d/milter.conf <<EOF
@@ -401,19 +472,28 @@ quarantine_on_reject = false;
 EOF
 
 cat > /etc/rspamd/local.d/milter_headers.conf <<EOF
-use = ["x-spam-status", "spam-header"];
-authenticated_headers = [];
+use = ["x-spam-status", "spam-header", "x-spamd-bar", "authentication-results"];
 extended_spam_headers = false;
 skip_local = false;
 skip_authenticated = true;
-
 routines {
   "x-spam-status" {
     header = "X-Spam-Status";
+    value = "\$is_spam, score=\$score threshold=\$required_score";
+    remove = 1;
   }
   "spam-header" {
     header = "X-Spam-Flag";
     value = "YES";
+    remove = 1;
+  }
+  "x-spamd-bar" {
+    header = "X-Spamd-Bar";
+    remove = 1;
+  }
+  "authentication-results" {
+    header = "Authentication-Results";
+    remove = 1;
   }
 }
 EOF
@@ -506,5 +586,5 @@ echo "DKIM record available in /var/lib/rspamd/dkim/$DOMAIN.txt"
 echo "Rspamd dashboard available at http://<Pi-IP>:11334 for LAN: $LAN_SUBNET"
 echo "Ready to send/receive mail via $MAILHOST"
 echo ""
-echo "Create new mail users using:"
-echo "useradd -d $MAILDIR/<userid> -m -s /bin/false <userid>"
+echo "Create new mail users using the add_user.sh file:"
+echo "sudo ./add_user.sh user@$DOMAIN 'password'"
