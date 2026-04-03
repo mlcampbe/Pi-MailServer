@@ -148,7 +148,7 @@ smtpd_recipient_restrictions =
     permit_sasl_authenticated
     permit_mynetworks
     reject_unauth_destination
-    reject_rbl_client zen.spamhaus.org
+    reject_rbl_client $SPAMHAUSKEY.zen.spamhaus.org
     reject_rbl_client bl.spamcop.net
     reject_rbl_client b.barracudacentral.org
 
@@ -172,7 +172,7 @@ smtp_tls_CAfile = /etc/ssl/certs/ca-certificates.crt
 
 # Postscreen (Anti-Spam)
 postscreen_dnsbl_sites =
-    zen.spamhaus.org*2
+    $SPAMHAUSKEY.zen.spamhaus.org*1
     bl.spamcop.net
     b.barracudacentral.org
 postscreen_dnsbl_threshold = 2
