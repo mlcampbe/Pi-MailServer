@@ -4,20 +4,22 @@ set -e
 # ----------------------------
 # Variables - UPDATE THESE
 # ----------------------------
-MAILHOST="mail.<domain>"
+MAILHOST="mail.x.com"
 DOMAIN="${MAILHOST#*.}"
-SMTPUSER="<username>"
-SMTPPASS="<password>"
-ADMINEMAIL="<emailaddr>"
-RSPAMDPASS="<password>"
-SPAMHAUSKEY="<apikey>"
+SMTPUSER="xxxx"
+SMTPPASS="xxxx"
+ADMINEMAIL="xxxx"
+RSPAMDPASS="xxxx"
+SPAMHAUSKEY="xxxx"
 MAILDIR="/mnt/mailserver"
-POSTMASTER_PASS="<password>"
-MY_IP="<routerpublicip>"
+POSTMASTERPASS="xxxx"
+MY_IP="99.x.x.x"
 
 # ----------------------------
 # OS Preparation & Repos
 # ----------------------------
+hostnamectl set-hostname $MAILHOST
+
 echo "Installing Repositories..."
 dnf install -y oracle-epel-release-el9
 dnf config-manager --set-enabled ol9_codeready_builder
@@ -51,7 +53,6 @@ firewall-cmd --permanent --add-service=http
 firewall-cmd --permanent --add-port=587/tcp  # Submission
 firewall-cmd --permanent --add-port=465/tcp  # SMTPS
 firewall-cmd --permanent --add-port=993/tcp  # IMAPS
-firewall-cmd --permanent --add-port=11334/tcp # RSPAMD UI
 firewall-cmd --reload
 
 semanage port -a -t dns_port_t -p tcp 5353
@@ -100,16 +101,17 @@ myorigin = \$mydomain
 inet_interfaces = all
 inet_protocols = ipv4
 mydestination = \$myhostname, localhost.\$mydomain, localhost
-mynetworks = 127.0.0.0/8, 10.0.0.0/16
+mynetworks = 127.0.0.0/8
 relay_domains =
-append_dot_mydomain = yes
+append_dot_mydomain = no
 
 # User Settings
-virtual_mailbox_domains = mlc5.com
+virtual_mailbox_domains = $DOMAIN
 virtual_transport = lmtp:unix:private/dovecot-lmtp
 virtual_alias_maps = hash:/etc/postfix/virtual
 
 # TLS/SSL Security
+smtpd_tls_auth_only = yes
 smtpd_tls_cert_file=/etc/letsencrypt/live/$MAILHOST/fullchain.pem
 smtpd_tls_key_file=/etc/letsencrypt/live/$MAILHOST/privkey.pem
 smtpd_tls_security_level = may
@@ -145,9 +147,6 @@ smtpd_recipient_restrictions =
     permit_sasl_authenticated
     permit_mynetworks
     reject_unauth_destination
-    reject_rbl_client $SPAMHAUSKEY.spamhaus.org
-    reject_rbl_client bl.spamcop.net
-    reject_rbl_client b.barracudacentral.org
 
 # Rate Limiting
 smtpd_client_connection_rate_limit = 30
@@ -169,10 +168,10 @@ smtp_tls_CAfile = /etc/pki/tls/certs/ca-bundle.crt
 
 # Postscreen (Anti-Spam)
 postscreen_dnsbl_sites =
-    $SPAMHAUSKEY.spamhaus.org*1
-    bl.spamcop.net
-    b.barracudacentral.org
-postscreen_dnsbl_threshold = 2
+    $SPAMHAUSKEY.zen.dq.spamhaus.net*3
+    bl.spamcop.net*2
+    b.barracudacentral.org*2
+postscreen_dnsbl_threshold = 3
 postscreen_dnsbl_action = enforce
 postscreen_pipelining_enable = yes
 postscreen_pipelining_action = enforce
@@ -180,6 +179,7 @@ postscreen_non_smtp_command_enable = yes
 postscreen_non_smtp_command_action = enforce
 postscreen_bare_newline_enable = yes
 postscreen_bare_newline_action = enforce
+postscreen_access_list = permit_mynetworks
 
 queue_directory = /var/spool/postfix
 meta_directory = /etc/postfix
@@ -214,7 +214,7 @@ submission inet n - y - - smtpd
 EOF
 
 cat >> /etc/postfix/virtual <<EOF
-postmaster@@$DOMAIN mike@DOMAIN
+postmaster@$DOMAIN mike@$DOMAIN
 EOF
 postmap /etc/postfix/virtual
 
@@ -275,6 +275,7 @@ EOF
 sed -i 's|^!include auth-system.conf.ext|#!include auth-system.conf.ext|' /etc/dovecot/conf.d/10-auth.conf
 sed -i 's|^#!include auth-passwdfile.conf.ext|!include auth-passwdfile.conf.ext|' /etc/dovecot/conf.d/10-auth.conf
 sed -i 's|#sieve_before =.*|sieve_before = /etc/dovecot/sieve/move-to-junk.sieve|' /etc/dovecot/conf.d/90-sieve.conf
+sed -i 's|^[[:space:]]*# (sieve_extensions = \+notify \+imapflags)$|\1 +editheader|' /etc/dovecot/conf.d/90-sieve.conf
 sed -i 's|^[[:blank:]]*#[[:blank:]]*mail_plugins|  mail_plugins|' /etc/dovecot/conf.d/20-imap.conf
 sed -i 's/^[[:blank:]]*#[[:blank:]]*mail_plugins = \$mail_plugin/  mail_plugins = \$mail_plugins sieve/' /etc/dovecot/conf.d/20-lmtp.conf
 sed -i 's|^[[:blank:]]*#[[:blank:]]*mail_plugins|  mail_plugins|' /etc/dovecot/conf.d/15-lda.conf
@@ -307,9 +308,11 @@ sievec /etc/dovecot/sieve/move-to-junk.sieve
 # TLS
 cat > /etc/dovecot/conf.d/10-ssl.conf <<EOF
 ssl = required
-ssl_cert = < /etc/letsencrypt/live/$DOMAIN/fullchain.pem
-ssl_key = < /etc/letsencrypt/live/$DOMAIN/privkey.pem
+ssl_cert = < /etc/letsencrypt/live/$MAILHOST/fullchain.pem
+ssl_key = < /etc/letsencrypt/live/$MAILHOST/privkey.pem
 ssl_min_protocol = TLSv1.2
+ssl_prefer_server_ciphers = yes
+disable_plaintext_auth = yes
 EOF
 
 # Auto-create standard IMAP folders
@@ -333,7 +336,7 @@ EOF
 # Dashboard + controller with LAN secure_ip
 HASHED_PASS=$(rspamadm pw -p "$RSPAMDPASS" -q)
 cat > /etc/rspamd/local.d/worker-controller.inc <<EOF
-bind_socket = "0.0.0.0:11334";
+bind_socket = "127.0.0.1:11334";
 secure_ip = "127.0.0.1, $MY_IP";
 password = "$HASHED_PASS";
 enable_password = "$HASHED_PASS";
@@ -351,9 +354,37 @@ rbls {
     enabled = false;
   }
   spamhaus {
-    # Replace the bracketed part with your actual key
-    rbl = "$SPAMHAUSKEY.zen.dq.spamhaus.net";
-    enabled = true;
+    rbl = "$SPAMHAUSKEY.dq.spamhaus.net";
+    checks = ["from", "received"];
+    symbol = "RBL_SPAMHAUS";
+  }
+
+  spamcop {
+    rbl = "bl.spamcop.net";
+    checks = ["from"];
+    symbol = "RBL_SPAMCOP";
+  }
+
+  barracuda {
+    rbl = "b.barracudacentral.org";
+    checks = ["from"];
+    symbol = "RBL_BARRACUDA";
+  }
+}
+EOF
+
+cat > /etc/rspamd/local.d/groups.conf <<EOF
+symbols {
+  "RBL_SPAMHAUS" {
+    weight = 6.0;
+  }
+
+  "RBL_SPAMCOP" {
+    weight = 2.5;
+  }
+
+  "RBL_BARRACUDA" {
+    weight = 2.0;
   }
 }
 EOF
@@ -519,6 +550,11 @@ systemctl restart redis
 # ----------------------------
 echo "Configuring Fail2ban..."
 cat > /etc/fail2ban/jail.local <<EOF
+[DEFAULT]
+bantime  = 1h
+findtime = 10m
+maxretry = 5
+
 [dovecot]
 enabled = true
 
@@ -567,7 +603,6 @@ systemctl enable --now redis rspamd postfix dovecot fail2ban unbound
 echo ""
 echo "INSTALL COMPLETE"
 echo "DKIM record available in /var/lib/rspamd/dkim/$DOMAIN.txt"
-echo "Rspamd dashboard available at http://<Pi-IP>:11334 for LAN: $MY_IP"
 echo "Ready to send/receive mail via $MAILHOST"
 echo ""
 echo "Create new mail users using the add_user.sh file:"
