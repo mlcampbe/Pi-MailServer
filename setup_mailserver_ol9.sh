@@ -575,15 +575,6 @@ routines {
 }
 EOF
 
-cat > /etc/rspamd/local.d/composites.conf <<EOF
-AUTH_NA {
-    expression = "!R_DKIM_ALLOW & !R_SPF_ALLOW";
-    score = 2.0;
-    policy = "leave";
-    description = "Authenticating message via SPF/DKIM/DMARC/ARC not available";
-}
-EOF
-
 cat > /etc/rspamd/local.d/policies_group.conf <<EOF
 symbols {
     R_SPF_FAIL { weight = 3.0; }
