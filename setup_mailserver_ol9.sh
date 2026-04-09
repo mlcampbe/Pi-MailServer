@@ -13,7 +13,6 @@ RSPAMDPASS="xxxx"
 SPAMHAUSKEY="xxxx"
 MAILDIR="/mnt/mailserver"
 POSTMASTERPASS="xxxx"
-MY_IP="99.x.x.x"
 
 # ----------------------------
 # OS Preparation & Repos
@@ -49,15 +48,14 @@ systemctl enable --now firewalld
 # Use port numbers to avoid 'service not found' errors on OL9
 firewall-cmd --permanent --add-service=ssh
 firewall-cmd --permanent --add-service=smtp
-firewall-cmd --permanent --add-service=http
 firewall-cmd --permanent --add-port=587/tcp  # Submission
-firewall-cmd --permanent --add-port=465/tcp  # SMTPS
 firewall-cmd --permanent --add-port=993/tcp  # IMAPS
 firewall-cmd --reload
 
 semanage port -a -t dns_port_t -p tcp 5353
 semanage port -a -t dns_port_t -p udp 5353
 semanage port -a -t http_port_t -p tcp 11334
+semanage port -a -t http_port_t -p tcp 11335
 
 # ----------------------------
 # TLS CERTIFICATE
@@ -132,7 +130,6 @@ smtpd_sasl_path = private/auth
 smtpd_helo_required = yes
 smtpd_helo_restrictions =
     permit_mynetworks
-    permit_sasl_authenticated
     reject_invalid_helo_hostname
     reject_non_fqdn_helo_hostname
 
@@ -148,10 +145,18 @@ smtpd_recipient_restrictions =
     permit_mynetworks
     reject_unauth_destination
 
+# SMTP Sender Restrictions
+smtpd_sender_restrictions =
+    permit_mynetworks
+    permit_sasl_authenticated
+    reject_non_fqdn_sender
+    reject_unknown_sender_domain
+
 # Rate Limiting
 smtpd_client_connection_rate_limit = 30
 smtpd_client_message_rate_limit = 20
 smtpd_client_connection_count_limit = 10
+smtpd_client_recipient_rate_limit = 50
 
 # Milter / Rspamd Settings
 milter_protocol = 6
@@ -167,19 +172,21 @@ smtp_sasl_security_options = noanonymous
 smtp_tls_CAfile = /etc/pki/tls/certs/ca-bundle.crt
 
 # Postscreen (Anti-Spam)
-postscreen_dnsbl_sites =
-    $SPAMHAUSKEY.zen.dq.spamhaus.net*3
-    bl.spamcop.net*2
-    b.barracudacentral.org*2
-postscreen_dnsbl_threshold = 3
-postscreen_dnsbl_action = enforce
+# Disabled to allow rspamd to handle dnsbl
+#postscreen_dnsbl_sites =
+#    byskvcgo5cf6un4qdu5e5tfyza.zen.dq.spamhaus.net*3
+#    bl.spamcop.net*2
+#    b.barracudacentral.org*2
+#postscreen_dnsbl_threshold = 4
+#postscreen_dnsbl_action = enforce
+postscreen_greet_action = enforce
 postscreen_pipelining_enable = yes
 postscreen_pipelining_action = enforce
 postscreen_non_smtp_command_enable = yes
 postscreen_non_smtp_command_action = enforce
 postscreen_bare_newline_enable = yes
 postscreen_bare_newline_action = enforce
-postscreen_access_list = permit_mynetworks
+postscreen_access_list = permit_mynetworks, cidr:/etc/postfix/postscreen_access.cidr
 
 queue_directory = /var/spool/postfix
 meta_directory = /etc/postfix
@@ -196,6 +203,28 @@ manpage_directory = /usr/share/man
 html_directory = no
 data_directory = /var/lib/postfix
 shlib_directory = /usr/lib64/postfix
+virtual_alias_maps = hash:/etc/postfix/virtual
+EOF
+
+cat >> /etc/postfix/postscreen_access.cidr <<EOF
+# Google/Gmail Whitelist
+209.85.0.0/16      permit
+74.125.0.0/16      permit
+66.249.0.0/16      permit
+64.233.0.0/16      permit
+172.217.0.0/16     permit
+173.194.0.0/16     permit
+108.177.0.0/16     permit
+
+# Microsoft 365 / Outlook / Exchange Online
+40.92.0.0/15      permit
+40.107.0.0/16     permit
+52.100.0.0/14     permit
+104.47.0.0/17     permit
+
+# Apple iCloud Mail
+17.0.0.0/8        permit
+57.103.64.0/18    permit
 EOF
 
 sed -i '/^smtp[[:space:]]\+inet.*smtpd$/ s/^/#/' /etc/postfix/master.cf
@@ -235,7 +264,7 @@ chmod 600 /etc/postfix/sasl_passwd.db
 echo "Configuring Dovecot..."
 
 sed -i 's/^#protocols =.*/protocols = imap lmtp sieve/' /etc/dovecot/dovecot.conf
-sed -i "s|^#[[:space:]]mail_location =.*|mail_location = maildir:$MAILDIR/%n/Maildir|" /etc/dovecot/conf.d/10-mail.conf
+sed -i "s|^#mail_location =.*|mail_location = maildir:$MAILDIR/%n/Maildir|" /etc/dovecot/conf.d/10-mail.conf
 
 cat > /etc/dovecot/conf.d/15-custom.conf <<EOF
 service lmtp {
@@ -272,27 +301,52 @@ userdb {
 }
 EOF
 
+sed -i 's|^[[:blank:]]*#[[:blank:]]*mail_plugins = \$mail_plugins|  mail_plugins = \$mail_plugins imap_sieve|' /etc/dovecot/conf.d/20-imap.conf
+sed -i 's|^[[:blank:]]*#imap_id_send =|imap_id_send = name "Mail Server"|' /etc/dovecot/conf.d/20-imap.conf
+sed -i 's|^[[:blank:]]*#[[:blank:]]*mail_plugins = \$mail_plugins|  mail_plugins = \$mail_plugins sieve|' /etc/dovecot/conf.d/20-lmtp.conf
+sed -i 's|^[[:blank:]]*#[[:blank:]]*mail_plugins|  mail_plugins|' /etc/dovecot/conf.d/15-lda.conf
+sed -i 's|^[[:blank:]]*#[[:blank:]]*port = 143|    port = 0|' /etc/dovecot/conf.d/10-master.conf
+sed -i 's|^[[:blank:]]*#[[:blank:]]*port = 110|    port = 0|' /etc/dovecot/conf.d/10-master.conf
+sed -i 's|^[[:blank:]]*#[[:blank:]]*port = 995|    port = 0|' /etc/dovecot/conf.d/10-master.conf
 sed -i 's|^!include auth-system.conf.ext|#!include auth-system.conf.ext|' /etc/dovecot/conf.d/10-auth.conf
 sed -i 's|^#!include auth-passwdfile.conf.ext|!include auth-passwdfile.conf.ext|' /etc/dovecot/conf.d/10-auth.conf
+sed -i 's|^[[:blank:]]*#[[:blank:]]*auth_cache_size = 0|auth_cache_size = 1M|' /etc/dovecot/conf.d/10-auth.conf
+sed -i 's|^[[:blank:]]*#[[:blank:]]*auth_cache_ttl = 1 hour|auth_cache_ttl = 1 hour|' /etc/dovecot/conf.d/10-auth.conf
+sed -i 's|^[[:blank:]]*#[[:blank:]]*auth_cache_negative_ttl = 1 hour|auth_cache_negative_ttl = 1 hour|' /etc/dovecot/conf.d/10-auth.conf
 sed -i 's|#sieve_before =.*|sieve_before = /etc/dovecot/sieve/move-to-junk.sieve|' /etc/dovecot/conf.d/90-sieve.conf
-sed -i 's|^[[:space:]]*# (sieve_extensions = \+notify \+imapflags)$|\1 +editheader|' /etc/dovecot/conf.d/90-sieve.conf
-sed -i 's|^[[:blank:]]*#[[:blank:]]*mail_plugins|  mail_plugins|' /etc/dovecot/conf.d/20-imap.conf
-sed -i 's/^[[:blank:]]*#[[:blank:]]*mail_plugins = \$mail_plugin/  mail_plugins = \$mail_plugins sieve/' /etc/dovecot/conf.d/20-lmtp.conf
-sed -i 's|^[[:blank:]]*#[[:blank:]]*mail_plugins|  mail_plugins|' /etc/dovecot/conf.d/15-lda.conf
+sed -i 's|^[[:blank:]]*#[[:blank:]]*sieve_extensions = +notify +imapflags|  sieve_extensions = +notify +imapflags +editheader +vnd.dovecot.pipe|' /etc/dovecot/conf.d/90-sieve.conf
+sed -i 's|^[[:blank:]]*#sieve_global_extensions =.*|  sieve_global_extensions = +vnd.dovecot.pipe +vnd.dovecot.execute|' /etc/dovecot/conf.d/90-sieve.conf
+sed -i 's|^[[:blank:]]*#sieve_plugins =.*|  sieve_plugins = sieve_imapsieve sieve_extprograms|' /etc/dovecot/conf.d/90-sieve.conf
+sed -i '$d' /etc/dovecot/conf.d/90-sieve.conf
+cat >>/etc/dovecot/conf.d/90-sieve.conf <<EOF
 
-#sed -i "/#mailbox Spam {/,/^[[:blank:]]*#}/ {
-#    s/^[[:blank:]]*#//
-#    s/^[[:blank:]]*//
-#}" /etc/dovecot/conf.d/90-sieve.conf
+  # When moving TO Junk
+  sieve_pipe_bin_dir = /usr/bin
 
-#sed -i "/#imapsieve_from Spam {/,/^[[:blank:]]*#}/ {
-#    s/^[[:blank:]]*#//
-#    s/^[[:blank:]]*//
-#}" /etc/dovecot/conf.d/90-sieve.conf
+  # Triggered when moving to the folder with the 'Junk' special-use attribute
+  imapsieve_mailbox1_name = Junk
+  imapsieve_mailbox1_causes = COPY
+  imapsieve_mailbox1_before = file:/etc/dovecot/sieve/learn-spam.sieve
 
+  # Triggered when moving FROM Junk to any other folder
+  imapsieve_mailbox2_name = *
+  imapsieve_mailbox2_from = Junk
+  imapsieve_mailbox2_causes = COPY
+  imapsieve_mailbox2_before = file:/etc/dovecot/sieve/learn-ham.sieve
+}
+EOF
+
+sed -i "/inet_listener submission {/,/}/ {
+    s/^[[:blank:]]*#[[:blank:]]*port = 587/     port = 587/
+}" /etc/dovecot/conf.d/10-master.conf
+
+sed -i -e '/#service managesieve-login {/ s/^#//' -e '/vsz_limit = 64M/{n; s/^#//}' /etc/dovecot/conf.d/20-managesieve.conf
+sed -i -e '/inet_listener sieve {/ s/^[[:blank:]]*#[[:blank:]]*/  /' \
+       -e '/port = 4190/ s/^[[:blank:]]*#[[:blank:]]*port = 4190/    port = 0/' \
+       -e '/inet_listener sieve {/,/}/ { /^[[:blank:]]*#[[:blank:]]*}/ s/^[[:blank:]]*#[[:blank:]]*/  / }' /etc/dovecot/conf.d/20-managesieve.conf
+
+# Sieve file setup
 mkdir /etc/dovecot/sieve
-semanage fcontext -a -t dovecot_etc_t "/etc/dovecot/sieve(/.*)?"
-restorecon -Rv /etc/dovecot/sieve
 cat > /etc/dovecot/sieve/move-to-junk.sieve <<EOF
 require ["fileinto"];
 if anyof (
@@ -305,6 +359,26 @@ if anyof (
 EOF
 sievec /etc/dovecot/sieve/move-to-junk.sieve
 
+cat > /etc/dovecot/sieve/learn-spam.sieve <<EOF
+require ["vnd.dovecot.pipe", "copy", "imapsieve", "environment", "variables"];
+
+if anyof (environment :is "imap.cause" "COPY", environment :is "imap.cause" "APPEND") {
+    pipe :copy "rspamc" ["-P", "$RSPAMDPASS", "learn_spam"];
+}
+EOF
+sievec /etc/dovecot/sieve/learn-spam.sieve
+
+cat > /etc/dovecot/sieve/learn-ham.sieve <<EOF
+require ["vnd.dovecot.pipe", "copy", "imapsieve", "environment", "variables"];
+
+if anyof (environment :is "imap.cause" "COPY", environment :is "imap.cause" "APPEND") {
+    pipe :copy "rspamc" ["-P", "$RSPAMDPASS", "learn_ham"];
+}
+EOF
+sievec /etc/dovecot/sieve/learn-ham.sieve
+semanage fcontext -a -t dovecot_etc_t "/etc/dovecot/sieve(/.*)?"
+restorecon -Rv /etc/dovecot/sieve
+
 # TLS
 cat > /etc/dovecot/conf.d/10-ssl.conf <<EOF
 ssl = required
@@ -313,12 +387,13 @@ ssl_key = < /etc/letsencrypt/live/$MAILHOST/privkey.pem
 ssl_min_protocol = TLSv1.2
 ssl_prefer_server_ciphers = yes
 disable_plaintext_auth = yes
+ssl_require_crl = no
 EOF
 
 # Auto-create standard IMAP folders
-sed -i "/mailbox Junk {/a \    auto = subscribe" /etc/dovecot/conf.d/15-mailboxes.conf
+sed -i "/mailbox Junk {/a \    auto = subscribe\n    autoexpunge = 90d" /etc/dovecot/conf.d/15-mailboxes.conf
 sed -i "/mailbox Drafts {/a \    auto = subscribe" /etc/dovecot/conf.d/15-mailboxes.conf
-sed -i "/mailbox Trash {/a \    auto = subscribe" /etc/dovecot/conf.d/15-mailboxes.conf
+sed -i "/mailbox Trash {/a \    auto = subscribe\n    autoexpunge = 365d" /etc/dovecot/conf.d/15-mailboxes.conf
 sed -i "/mailbox Sent Messages {/a \    auto = subscribe" /etc/dovecot/conf.d/15-mailboxes.conf
 
 # ----------------------------
@@ -328,47 +403,50 @@ echo "Configuring Rspamd..."
 mkdir -p /etc/rspamd/local.d
 mkdir -p /var/lib/rspamd/dkim
 
-# Redis backend
-cat > /etc/rspamd/local.d/redis.conf <<EOF
-servers = "127.0.0.1:6379";
-EOF
-
-# Dashboard + controller with LAN secure_ip
+# Dashboard + controller
 HASHED_PASS=$(rspamadm pw -p "$RSPAMDPASS" -q)
 cat > /etc/rspamd/local.d/worker-controller.inc <<EOF
 bind_socket = "127.0.0.1:11334";
-secure_ip = "127.0.0.1, $MY_IP";
+secure_ip = "127.0.0.1";
 password = "$HASHED_PASS";
 enable_password = "$HASHED_PASS";
 EOF
 
 # ----------------------------
-# DISABLE SENDERSCORE
+# LOCAL CONFIGS
 # ----------------------------
+cat > /etc/rspamd/local.d/redis.conf <<EOF
+servers = "127.0.0.1:6379";
+EOF
+
+cat > /etc/rspamd/local.d/spamhaus.conf <<EOF
+enabled = true;
+key = "$SPAMHAUSKEY"; ; # Your DQS key only
+EOF
+
 cat > /etc/rspamd/local.d/rbl.conf <<EOF
+# RBL configuration
 rbls {
+  # SpamCop RBL
+  spamcop {
+    enabled = true;
+    rbl = "bl.spamcop.net";
+    checks = ["from"];
+    symbol = "RBL_SPAMCOP";
+  }
+  # Barracuda RBL
+  barracuda {
+    enabled = true;
+    rbl = "b.barracudacentral.org";
+    checks = ["from"];
+    symbol = "RBL_BARRACUDA";
+  }
+  # Disable Senderscore RBLs completely
   senderscore {
     enabled = false;
   }
   senderscore_reputation {
     enabled = false;
-  }
-  spamhaus {
-    rbl = "$SPAMHAUSKEY.dq.spamhaus.net";
-    checks = ["from", "received"];
-    symbol = "RBL_SPAMHAUS";
-  }
-
-  spamcop {
-    rbl = "bl.spamcop.net";
-    checks = ["from"];
-    symbol = "RBL_SPAMCOP";
-  }
-
-  barracuda {
-    rbl = "b.barracudacentral.org";
-    checks = ["from"];
-    symbol = "RBL_BARRACUDA";
   }
 }
 EOF
@@ -376,24 +454,20 @@ EOF
 cat > /etc/rspamd/local.d/groups.conf <<EOF
 symbols {
   "RBL_SPAMHAUS" {
-    weight = 6.0;
+    weight = 12.0;
   }
-
   "RBL_SPAMCOP" {
     weight = 2.5;
   }
-
   "RBL_BARRACUDA" {
     weight = 2.0;
   }
 }
 EOF
 
-# ----------------------------
-# DKIM
-# ----------------------------
 rspamadm dkim_keygen -d $DOMAIN -s default -k /var/lib/rspamd/dkim/$DOMAIN.key
 cat > /etc/rspamd/local.d/dkim_signing.conf <<EOF
+allow_envfrom_empty = false;
 domain {
  $DOMAIN {
   path = "/var/lib/rspamd/dkim/$DOMAIN.key";
@@ -402,27 +476,19 @@ domain {
 }
 EOF
 
-# ----------------------------
-# GREYLIST
-# ----------------------------
 cat > /etc/rspamd/local.d/greylist.conf <<EOF
 enabled = true;
 use_score = true
-timeout = 5m;
+timeout = 5min;
 expire = 1d;
+max_wait = 1h;
 EOF
 
-# ----------------------------
-# REPUTATION
-# ----------------------------
 cat > /etc/rspamd/local.d/reputation.conf <<EOF
 backend = "redis";
 expire = 7d;
 EOF
 
-# ----------------------------
-# BAYES
-# ----------------------------
 cat > /etc/rspamd/local.d/classifier-bayes.conf <<EOF
 backend = "redis";
 min_tokens = 11;
@@ -432,9 +498,6 @@ statfile { symbol = "BAYES_SPAM"; spam = true; }
 statfile { symbol = "BAYES_HAM"; spam = false; }
 EOF
 
-# ----------------------------
-# FUZZY FILTER
-# ----------------------------
 cat > /etc/rspamd/local.d/fuzzy_check.conf <<EOF
 servers = "127.0.0.1:11335";
 symbol = "FUZZY_DENIED";
@@ -452,9 +515,7 @@ fuzzy_map {
 }
 EOF
 
-# ----------------------------
-# NEURAL FILTER
-# ----------------------------
+
 cat > /etc/rspamd/local.d/neural.conf <<EOF
 servers = "127.0.0.1:6379";
 max_profiles = 1;
@@ -470,9 +531,6 @@ profile "default" {
 }
 EOF
 
-# ----------------------------
-# OPTIONS CONFIG
-# ----------------------------
 cat > /etc/rspamd/local.d/options.inc <<EOF
 dns {
     nameserver = ["127.0.0.1:5353"];
@@ -481,15 +539,12 @@ dns {
 }
 EOF
 
-# ----------------------------
-# HEADER CONFIG
-# ----------------------------
 cat > /etc/rspamd/local.d/actions.conf <<EOF
 no_action = 0;
-add_header = 2.0;
+add_header = 6.0;
 rewrite_subject = 7.0;
 greylist = 4.0;
-reject = 50.0;
+reject = 25.0;
 EOF
 
 cat > /etc/rspamd/local.d/milter.conf <<EOF
@@ -498,14 +553,14 @@ quarantine_on_reject = false;
 EOF
 
 cat > /etc/rspamd/local.d/milter_headers.conf <<EOF
-use = ["x-spam-status", "spam-header", "x-spamd-bar", "authentication-results"];
-extended_spam_headers = true;
+use = ["x-spam-status", "spam-header", "authentication-results"];
+extended_spam_headers = false;
 skip_local = false;
 skip_authenticated = true;
 routines {
   "x-spam-status" {
     header = "X-Spam-Status";
-    value = "\$is_spam, score=\$score threshold=\$required_score";
+    value = "$is_spam, score=$score threshold=$required_score";
     remove = 1;
   }
   "spam-header" {
@@ -513,15 +568,29 @@ routines {
     value = "YES";
     remove = 1;
   }
-  "x-spamd-bar" {
-    header = "X-Spamd-Bar";
-    remove = 1;
-  }
   "authentication-results" {
     header = "Authentication-Results";
     remove = 1;
   }
 }
+EOF
+
+cat > /etc/rspamd/local.d/composites.conf <<EOF
+AUTH_NA {
+    expression = "!R_DKIM_ALLOW & !R_SPF_ALLOW";
+    score = 2.0;
+    policy = "leave";
+    description = "Authenticating message via SPF/DKIM/DMARC/ARC not available";
+}
+EOF
+
+cat > /etc/rspamd/local.d/policies_group.conf <<EOF
+symbols {
+    R_SPF_FAIL { weight = 3.0; }
+    R_DKIM_REJECT { weight = 3.0; }
+    DMARC_POLICY_REJECT { weight = 6.0; }
+    DMARC_POLICY_QUARANTINE { weight = 4.0; }
+  }
 EOF
 
 # ----------------------------
@@ -551,9 +620,12 @@ systemctl restart redis
 echo "Configuring Fail2ban..."
 cat > /etc/fail2ban/jail.local <<EOF
 [DEFAULT]
-bantime  = 1h
+bantime  = 24h
 findtime = 10m
-maxretry = 5
+maxretry = 3
+bantime.increment = true
+bantime.factor = 2
+bantime.max = 1w
 
 [dovecot]
 enabled = true
@@ -563,6 +635,13 @@ enabled = true
 
 [postfix-sasl]
 enabled = true
+
+[recidive]
+enabled = true
+logpath = /var/log/fail2ban.log
+bantime = 1w
+findtime = 1d
+maxretry = 5
 EOF
 
 # ----------------------------
@@ -575,6 +654,10 @@ server:
     port: 5353
     access-control: 127.0.0.0/8 allow
     do-ip6: no
+    prefetch: yes
+    cache-min-ttl: 300
+    msg-cache-size: 32m
+    rrset-cache-size: 64m
 EOF
 
 # ----------------------------
