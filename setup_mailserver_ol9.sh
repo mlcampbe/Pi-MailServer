@@ -47,6 +47,7 @@ systemctl enable --now firewalld
 
 # Use port numbers to avoid 'service not found' errors on OL9
 firewall-cmd --permanent --add-service=ssh
+firewall-cmd --permanent --add-service=http
 firewall-cmd --permanent --add-service=smtp
 firewall-cmd --permanent --add-port=587/tcp  # Submission
 firewall-cmd --permanent --add-port=993/tcp  # IMAPS
@@ -421,7 +422,7 @@ EOF
 
 cat > /etc/rspamd/local.d/spamhaus.conf <<EOF
 enabled = true;
-key = "$SPAMHAUSKEY"; ; # Your DQS key only
+key = "$SPAMHAUSKEY"; # Your DQS key only
 EOF
 
 cat > /etc/rspamd/local.d/rbl.conf <<EOF
@@ -674,7 +675,7 @@ chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-mail.sh
 # ----------------------------
 # CREATE POSTMASTER ACCOUNT
 # ----------------------------
-./add_user postmaster $POSTMASTERPASS
+./add_user postmaster@$DOMAIN $POSTMASTERPASS
 
 # ----------------------------
 # START SERVICES
@@ -691,4 +692,4 @@ echo "Create new mail users using the add_user.sh file:"
 echo "sudo ./add_user.sh user@$DOMAIN 'password'"
 echo ""
 echo "Remember to setup certbot cron renewal as root using:"
-echo "0 */12 * * * /usr/bin/certbot renew --quiet
+echo "0 */12 * * * /usr/bin/certbot renew --quiet"
