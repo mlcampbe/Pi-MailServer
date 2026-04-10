@@ -675,7 +675,7 @@ chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-mail.sh
 # ----------------------------
 # CREATE POSTMASTER ACCOUNT
 # ----------------------------
-./add_user postmaster@$DOMAIN $POSTMASTERPASS
+./add_user.sh postmaster@$DOMAIN $POSTMASTERPASS
 
 # ----------------------------
 # START SERVICES
