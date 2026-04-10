@@ -611,21 +611,28 @@ systemctl restart redis
 echo "Configuring Fail2ban..."
 cat > /etc/fail2ban/jail.local <<EOF
 [DEFAULT]
-bantime  = 24h
+bantime = 24h
 findtime = 10m
 maxretry = 3
 bantime.increment = true
 bantime.factor = 2
 bantime.max = 1w
+#ignoreip = 127.0.0.1/8 ::1 <your-admin-ip>
+backend = systemd
+usedns = no
 
 [dovecot]
 enabled = true
+maxretry = 3
 
 [postfix]
 enabled = true
+maxretry = 5
 
 [postfix-sasl]
 enabled = true
+maxretry = 3
+findtime = 5m
 
 [recidive]
 enabled = true
@@ -658,6 +665,7 @@ echo "Configuring Let's Encrypt Renewal..."
 mkdir -p /etc/letsencrypt/renewal-hooks/deploy
 cat > /etc/letsencrypt/renewal-hooks/deploy/reload-mail.sh <<EOF
 #!/bin/bash
+set -e
 systemctl reload postfix
 systemctl reload dovecot
 EOF
@@ -681,3 +689,6 @@ echo "Ready to send/receive mail via $MAILHOST"
 echo ""
 echo "Create new mail users using the add_user.sh file:"
 echo "sudo ./add_user.sh user@$DOMAIN 'password'"
+echo ""
+echo "Remember to setup certbot cron renewal as root using:"
+echo "0 */12 * * * /usr/bin/certbot renew --quiet
