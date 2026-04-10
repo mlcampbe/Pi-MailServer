@@ -347,7 +347,7 @@ sed -i -e '/inet_listener sieve {/ s/^[[:blank:]]*#[[:blank:]]*/  /' \
        -e '/inet_listener sieve {/,/}/ { /^[[:blank:]]*#[[:blank:]]*}/ s/^[[:blank:]]*#[[:blank:]]*/  / }' /etc/dovecot/conf.d/20-managesieve.conf
 
 # Sieve file setup
-mkdir /etc/dovecot/sieve
+mkdir -p /etc/dovecot/sieve
 cat > /etc/dovecot/sieve/move-to-junk.sieve <<EOF
 require ["fileinto"];
 if anyof (
