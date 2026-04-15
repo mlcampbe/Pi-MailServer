@@ -395,7 +395,7 @@ EOF
 sed -i "/mailbox Junk {/a \    auto = subscribe\n    autoexpunge = 90d" /etc/dovecot/conf.d/15-mailboxes.conf
 sed -i "/mailbox Drafts {/a \    auto = subscribe" /etc/dovecot/conf.d/15-mailboxes.conf
 sed -i "/mailbox Trash {/a \    auto = subscribe\n    autoexpunge = 365d" /etc/dovecot/conf.d/15-mailboxes.conf
-sed -i "/mailbox Sent Messages {/a \    auto = subscribe" /etc/dovecot/conf.d/15-mailboxes.conf
+sed -i "/mailbox \"Sent Messages\" {/a \    auto = subscribe" /etc/dovecot/conf.d/15-mailboxes.conf
 
 # ----------------------------
 # RSPAMD CONFIG
@@ -561,7 +561,7 @@ skip_authenticated = true;
 routines {
   "x-spam-status" {
     header = "X-Spam-Status";
-    value = "$is_spam, score=$score threshold=$required_score";
+    value = "is_spam=\$is_spam, score=\$score threshold=\$required_score";
     remove = 1;
   }
   "spam-header" {
