@@ -420,35 +420,42 @@ cat > /etc/rspamd/local.d/redis.conf <<EOF
 servers = "127.0.0.1:6379";
 EOF
 
-cat > /etc/rspamd/local.d/spamhaus.conf <<EOF
-enabled = true;
-key = "$SPAMHAUSKEY"; # Your DQS key only
-EOF
-
 cat > /etc/rspamd/local.d/rbl.conf <<EOF
 # RBL configuration
 rbls {
-  # SpamCop RBL
   spamcop {
     enabled = true;
     rbl = "bl.spamcop.net";
     checks = ["from"];
     symbol = "RBL_SPAMCOP";
   }
-  # Barracuda RBL
   barracuda {
     enabled = true;
     rbl = "b.barracudacentral.org";
     checks = ["from"];
     symbol = "RBL_BARRACUDA";
   }
-  # Disable Senderscore RBLs completely
+  spamhaus {
+    # ZEN includes SBL, SBLCSS, XBL, and PBL
+    rbl = "$SPAMHAUSKEY.zen.dq.spamhaus.net";
+    symbol = "RBL_SPAMHAUS";
+    ipv4 = true;
+    ipv6 = true;
+    checks = ["from"];
+  }
+  spamhaus_dbl {
+    rbl = "$PAMHAUSKEY.dbl.dq.spamhaus.net";
+    symbol = "DBL_SPAMHAUS";
+    checks = ["emails", "urls"];
+  }
   senderscore {
     enabled = false;
   }
   senderscore_reputation {
     enabled = false;
   }
+}
+
 }
 EOF
 
