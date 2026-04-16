@@ -420,56 +420,75 @@ cat > /etc/rspamd/local.d/redis.conf <<EOF
 servers = "127.0.0.1:6379";
 EOF
 
-cat > /etc/rspamd/local.d/rbl.conf <<EOF
-# RBL configuration
+cat > /etc/rspamd/override.d/rbl.conf <<EOF
 rbls {
-  spamcop {
-    enabled = true;
-    rbl = "bl.spamcop.net";
-    checks = ["from"];
-    symbol = "RBL_SPAMCOP";
-  }
-  barracuda {
-    enabled = true;
-    rbl = "b.barracudacentral.org";
-    checks = ["from"];
-    symbol = "RBL_BARRACUDA";
-  }
   spamhaus {
-    # ZEN includes SBL, SBLCSS, XBL, and PBL
+    enabled = false;
+  }
+  dbl {
+    enabled = false;
+  }
+  spamhaus_zen {
+    symbol = "DQS_ZEN";
     rbl = "$SPAMHAUSKEY.zen.dq.spamhaus.net";
-    symbol = "RBL_SPAMHAUS";
     ipv4 = true;
     ipv6 = true;
-    checks = ["from"];
+    received = true;
+    returncodes {
+      DQS_ZEN = ["127.0.0.2", "127.0.0.4", "127.0.0.10", "127.0.0.11"];
+    }
   }
+
   spamhaus_dbl {
-    rbl = "$PAMHAUSKEY.dbl.dq.spamhaus.net";
-    symbol = "DBL_SPAMHAUS";
-    checks = ["emails", "urls"];
-  }
-  senderscore {
-    enabled = false;
-  }
-  senderscore_reputation {
-    enabled = false;
+    symbol = "DQS_DBL";
+    rbl = "$SPAMHAUSKEY.dbl.dq.spamhaus.net";
+    dkim = true;
+    emails = true;
+    urls = true;
+    returncodes {
+      DQS_DBL = "127.0.1.2";
+      DQS_DBL_ABUSE = "127.0.1.4";
+      DQS_DBL_BOTNET = "127.0.1.5";
+      DQS_DBL_MALWARE = "127.0.1.6";
+      DQS_DBL_PHISH = "127.0.1.102";
+    }
   }
 }
+EOF
 
+cat > /etc/rspamd/override.d/rbl.conf <<EOF
+symbols {
+    "RBL_SPAMHAUS" {
+        enabled = false;
+    }
+    "RECEIVED_RBL_SPAMHAUS" {
+        enabled = false;
+    }
+    "DBL_SPAMHAUS" {
+        enabled = false;
+    }
 }
 EOF
 
 cat > /etc/rspamd/local.d/groups.conf <<EOF
-symbols {
-  "RBL_SPAMHAUS" {
-    weight = 12.0;
-  }
-  "RBL_SPAMCOP" {
-    weight = 2.5;
-  }
-  "RBL_BARRACUDA" {
-    weight = 2.0;
-  }
+group "rbl" {
+    symbols {
+        "DQS_ZEN" {
+          weight = 12.0;
+        }
+        "DQS_DBL" {
+          weight = 7.0;
+        }
+        "DQS_DBL_PHISH" {
+          weight = 10.0;
+        }
+        "RBL_SPAMCOP" {
+          weight = 2.5;
+        }
+        "RBL_BARRACUDA" {
+          weight = 2.0;
+        }
+    }
 }
 EOF
 
