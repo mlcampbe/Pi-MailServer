@@ -421,6 +421,10 @@ servers = "127.0.0.1:6379";
 EOF
 
 cat > /etc/rspamd/override.d/rbl.conf <<EOF
+local_exclude = false;
+exclude_users = false;
+default_exclude_users = false;
+
 rbls {
   spamhaus {
     enabled = false;
@@ -428,14 +432,15 @@ rbls {
   dbl {
     enabled = false;
   }
+
   spamhaus_zen {
     symbol = "DQS_ZEN";
     rbl = "$SPAMHAUSKEY.zen.dq.spamhaus.net";
     ipv4 = true;
     ipv6 = true;
-    received = true;
+    received = true; # Check the full relay chain
     returncodes {
-      DQS_ZEN = ["127.0.0.2", "127.0.0.4", "127.0.0.10", "127.0.0.11"];
+      DQS_ZEN = "127.0.0.0/24";
     }
   }
 
@@ -446,11 +451,23 @@ rbls {
     emails = true;
     urls = true;
     returncodes {
-      DQS_DBL = "127.0.1.2";
-      DQS_DBL_ABUSE = "127.0.1.4";
-      DQS_DBL_BOTNET = "127.0.1.5";
-      DQS_DBL_MALWARE = "127.0.1.6";
-      DQS_DBL_PHISH = "127.0.1.102";
+      DQS_DBL = "127.0.1.0/24"
+    }
+  }
+
+  mailspike {
+    symbol = "MAILSPIKE";
+    rbl = "rep.mailspike.net";
+    ipv4 = true;
+    from = true; # This tells Rspamd to check the IP that connected to you
+    returncodes {
+      MS_H3 = "127.0.0.12";
+      MS_H4 = "127.0.0.11";
+      MS_H5 = "127.0.0.10";
+      MS_L2 = "127.0.0.2";
+      MS_L3 = "127.0.0.3";
+      MS_L4 = "127.0.0.4";
+      MS_L5 = "127.0.0.5";
     }
   }
 }
@@ -473,20 +490,48 @@ EOF
 cat > /etc/rspamd/local.d/groups.conf <<EOF
 group "rbl" {
     symbols {
+        # --- Spamhaus DQS (Your heavy hitters) ---
         "DQS_ZEN" {
-          weight = 12.0;
+            weight = 12.0;
+            description = "Spamhaus ZEN IP reputation (SBL/XBL/PBL)";
         }
         "DQS_DBL" {
-          weight = 7.0;
-        }
-        "DQS_DBL_PHISH" {
-          weight = 10.0;
+            weight = 7.0;
+            description = "Spamhaus DBL domain reputation";
         }
         "RBL_SPAMCOP" {
           weight = 2.5;
         }
         "RBL_BARRACUDA" {
           weight = 2.0;
+        }
+        # --- Mailspike Bad Reputation (Penalties) ---
+        "MS_L2" {
+            weight = 6.0;
+            description = "Mailspike ZOMBIE - highly likely spam";
+        }
+        "MS_L3" {
+            weight = 4.0;
+            description = "Mailspike WORST - very low reputation";
+        }
+        "MS_L4" {
+            weight = 2.0;
+            description = "Mailspike BAD - low reputation";
+        }
+
+        # --- Mailspike Good Reputation (The 'Safe' Buffer) ---
+        # These will subtract from the score, helping Oracle/Gmail pass
+        "MS_H5" {
+            weight = -3.0;
+            description = "Mailspike EXCELLENT - very high reputation";
+        }
+        "MS_H4" {
+            weight = -2.0;
+            description = "Mailspike VERY GOOD - high reputation";
+        }
+        "MS_H3" {
+            weight = -1.0;
+            description = "Mailspike GOOD - good reputation";
         }
     }
 }
