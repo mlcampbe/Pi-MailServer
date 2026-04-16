@@ -500,22 +500,11 @@ statfile { symbol = "BAYES_HAM"; spam = false; }
 EOF
 
 cat > /etc/rspamd/local.d/fuzzy_check.conf <<EOF
-servers = "127.0.0.1:11335";
-symbol = "FUZZY_DENIED";
-max_score = 20.0;
-read_only = no;
+rule "rspamd.com" {
+    # Explicitly use only the server you know is working
+    servers = "fuzzy2.rspamd.com:11335";
+};
 EOF
-
-cat > /etc/rspamd/local.d/worker-fuzzy.inc <<EOF
-bind_socket = "127.0.0.1:11335";
-backend = "redis";
-expire = 90d;
-fuzzy_map {
- spam { max_score = 20.0; }
- ham { max_score = 2.0; }
-}
-EOF
-
 
 cat > /etc/rspamd/local.d/neural.conf <<EOF
 servers = "127.0.0.1:6379";
