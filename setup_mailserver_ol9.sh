@@ -421,7 +421,7 @@ servers = "127.0.0.1:6379";
 EOF
 
 cat > /etc/rspamd/override.d/rbl.conf <<EOF
-local_exclude = false;
+exclude_local = false;
 exclude_users = false;
 default_exclude_users = false;
 
@@ -436,6 +436,7 @@ rbls {
   spamhaus_zen {
     symbol = "DQS_ZEN";
     rbl = "$SPAMHAUSKEY.zen.dq.spamhaus.net";
+    ignore_defaults = true;
     ipv4 = true;
     ipv6 = true;
     received = true; # Check the full relay chain
@@ -447,6 +448,7 @@ rbls {
   spamhaus_dbl {
     symbol = "DQS_DBL";
     rbl = "$SPAMHAUSKEY.dbl.dq.spamhaus.net";
+    ignore_defaults = true;
     dkim = true;
     emails = true;
     urls = true;
@@ -563,6 +565,7 @@ add_header = 6.0;
 rewrite_subject = 7.0;
 greylist = 4.0;
 reject = 25.0;
+subject = "***SPAM*** %s"
 EOF
 
 cat > /etc/rspamd/local.d/milter.conf <<EOF
@@ -621,6 +624,8 @@ sed -i 's/^# save 3600 1/save 3600 1/' /etc/redis/redis.conf
 sed -i 's/^# save 300 100/save 300 100/' /etc/redis/redis.conf
 sed -i 's/^# save 60 10000/save 60 10000/' /etc/redis/redis.conf
 sed -i 's/^appendonly no/appendonly yes/' /etc/redis/redis.conf
+sed -i 's/^# maxmemory <bytes>/maxmemory 500mb/' /etc/redis/redis.conf
+sed -i 's/^# maxmemory-policy noeviction/maxmemory-policy volatile-ttl/' /etc/redis/redis.conf
 systemctl restart redis
 
 # ----------------------------
@@ -674,6 +679,7 @@ server:
     cache-min-ttl: 300
     msg-cache-size: 32m
     rrset-cache-size: 64m
+    qname-minimisation: no
 EOF
 
 # ----------------------------
