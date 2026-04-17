@@ -476,10 +476,12 @@ group "rbl" {
     symbols {
         "DQS_ZEN" {
             weight = 12.0;
+            exclude_local = false;
             description = "Spamhaus ZEN IP reputation (SBL/XBL/PBL)";
         }
         "DQS_DBL" {
             weight = 7.0;
+            exclude_local = false;
             description = "Spamhaus DBL domain reputation";
         }
         "RBL_SPAMCOP" {
