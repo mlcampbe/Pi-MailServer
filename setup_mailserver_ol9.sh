@@ -435,10 +435,10 @@ rbls {
 
   spamhaus_zen {
     symbol = "DQS_ZEN";
-    rbl = "$SPAMHAUSKEY.zen.dq.spamhaus.net";
-    ignore_defaults = true;
+    rbl = "byskvcgo5cf6un4qdu5e5tfyza.zen.dq.spamhaus.net";
     ipv4 = true;
     ipv6 = true;
+    ignore_defaults = true;
     received = true; # Check the full relay chain
     returncodes {
       DQS_ZEN = "127.0.0.0/24";
@@ -447,15 +447,77 @@ rbls {
 
   spamhaus_dbl {
     symbol = "DQS_DBL";
-    rbl = "$SPAMHAUSKEY.dbl.dq.spamhaus.net";
-    ignore_defaults = true;
+    rbl = "byskvcgo5cf6un4qdu5e5tfyza.dbl.dq.spamhaus.net";
     dkim = true;
     emails = true;
     urls = true;
+    ignore_defaults = true;
     returncodes {
       DQS_DBL = "127.0.1.0/24"
     }
   }
+
+   abusix_dnsbls_lasthop {
+     symbol = "RBL_AMI_LASTHOP";
+     rbl = "3d6f50b83a00690815a6a38d0e0db638.combined.mail.abusix.zone";
+     checks = [ "from" ];
+     unknown = false;
+     returncodes {
+       RBL_AMI_POLICY = [ "127.0.0.11", "127.0.0.12" ];
+       RBL_AMI_BLACK = [ "127.0.0.2", "127.0.0.3", "127.0.0.200" ];
+       RBL_AMI_EXPLOIT = [ "127.0.0.4" ];
+      }
+    }
+    abusix_dnsbls_authbl {
+        symbol = "RBL_AMI_AUTHBL";
+        rbl = "3d6f50b83a00690815a6a38d0e0db638.authbl.mail.abusix.zone";
+        checks = [ "from" ];
+        exclude_users = false;
+    }
+    abusix_dnsbls_anyhop {
+        symbol = "RBL_AMI_RCVD";
+        rbl = "3d6f50b83a00690815a6a38d0e0db638.combined.mail.abusix.zone";
+        checks = [ "received" ];
+        unknown = false;
+        returncodes {
+            RBL_AMI_BLACK_RCVD = [ "127.0.0.2", "127.0.0.3", "127.0.0.200" ];
+            RBL_AMI_EXPLOIT_RCVD = "127.0.0.4";
+        }
+    }
+    abusix_dnsbls_noip {
+        symbol = "RBL_AMI_NOIP";
+        rbl = "3d6f50b83a00690815a6a38d0e0db638.noip.mail.abusix.zone";
+        checks = [ "from", "received" ];
+    }
+    abusix_dnsbls_dblack {
+        symbol = "RBL_AMI_DBLACK";
+        rbl = "3d6f50b83a00690815a6a38d0e0db638.dblack.mail.abusix.zone";
+        checks = [ "content_urls", "dkim" ];
+        selector = "urls:get_host";
+    }
+    abusix_dnsbls_nod {
+        symbol = "RBL_AMI_NOD";
+        rbl = "3d6f50b83a00690815a6a38d0e0db638.nod.mail.abusix.zone";
+        checks = [ "content_urls", "dkim", "urls" ];
+    }
+    abusix_dnsbls_emailbl {
+        symbol = "RBL_AMI_EMAILBL"; 
+        rbl = "3d6f50b83a00690815a6a38d0e0db638.emailbl.mail-beta.abusix.zone";
+        selector = "from('mime').lower;from('smtp').lower";
+        checks = ['emails', 'replyto'];
+        hash = "sha1";
+    }
+    abusix_dnsbls_attachments {
+        symbol = "RBL_AMI_ATTACH";
+        rbl = "3d6f50b83a00690815a6a38d0e0db638.attachhash.mail-beta.abusix.zone";
+        selector = "attachments('hex', 'sha1')";
+    }
+    abusix_dnswls_lasthop {
+        symbol = "RWL_AMI_LASTHOP";
+        rbl = "3d6f50b83a00690815a6a38d0e0db638.white.mail.abusix.zone";
+        checks = [ "from" ];
+        is_whitelist = true;        
+    }
 }
 EOF
 
@@ -491,6 +553,76 @@ group "rbl" {
         }
         "RBL_BARRACUDA" {
           weight = 2.0;
+        }
+    }
+}
+
+group "abusix" {
+    description = "Guardian Mail"
+    symbols = {
+        "RBL_AMI_BLACK" {
+            score = 6.5;
+            description = "Delivered by a host in the Guardian Mail Block list";
+        }
+        "RBL_AMI_EXPLOIT" {
+            score = 6.5;
+            description = "Delivered by a host in the Guardian Mail Exploit list";
+        }
+        "RBL_AMI_POLICY" {
+            score = 2.0;
+            description = "Delivered by a host in the Guardian Mail Policy list";
+        }
+        "RBL_AMI_AUTHBL" {
+            score = 15.0;
+            description = "Delivered by a host in the Guardian Mail Authentication block list";
+        }
+        "RBL_AMI_BLACK_RCVD" {
+            score = 3.0;
+            description = "Received via a host in the Guardian Mail Black list";
+        }
+        "RBL_AMI_EXPLOIT_RCVD" {
+            score = 3.0;
+            description = "Received via a host in the Guardian Mail Exploit list";
+        }
+        "RBL_AMI_BLACK_HTTP" {
+            score = 4.5;
+            description = "Message was injected via HTTP from a host in the Guardian Mail Block list";
+        }
+        "RBL_AMI_NOIP" {
+            score = 4.5;
+            description = "Delivered or Received via a host in the Guardian Mail Newly Observed IPs list";
+        }
+        "RWL_AMI_LASTHOP" {
+            score = -1.0;
+            description = "Delivered by a host in the Guardian Mail White list";
+        }
+        "RBL_AMI_DBLACK" {
+            score = 6.5;
+            description = "Message contains a domain listed in the Guardian Mail Block list";
+        }
+        "RBL_AMI_NOD" {
+            score = 2.0;
+            description = "Message contains a domain listed in the Guardian Mail Newly Observed Domains list";
+        }
+        "RBL_AMI_EMAILBL" {
+            score = 4.5;
+            description = "Message contains an email address listed in the Guardian Mail Email block list";
+        }
+        "RBL_AMI_BTC" {
+            score = 6.5;
+            description = "Message contains a Bitcoin wallet address listed in the Guardian Mail BTC Wallet block list";
+        }
+        "RBL_AMI_SHORTURL" {
+            score = 6.5;
+            description = "Message contains a Short URL listed in the Guardian Mail Short URL block list";
+        }
+        "RBL_AMI_DISKURL" {
+            score = 6.5;
+            description = "Message contains a Disk URL listed in the Guardian Mail Disk URL block list";
+        }
+        "RBL_AMI_ATTACH" {
+            score = 4.5;
+            description = "Message contains an attachment listed in the Guardian Mail Attachment block list";
         }
     }
 }
@@ -575,7 +707,7 @@ EOF
 
 cat > /etc/rspamd/local.d/milter_headers.conf <<EOF
 use = ["x-spam-status", "spam-header", "authentication-results"];
-extended_spam_headers = false;
+extended_spam_headers = true;
 skip_local = false;
 skip_authenticated = true;
 routines {
