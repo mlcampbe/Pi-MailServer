@@ -473,7 +473,7 @@ rbls {
 }
 EOF
 
-cat > /etc/rspamd/override.d/rbl.conf <<EOF
+cat > /etc/rspamd/override.d/rbl_group.conf <<EOF
 symbols {
     "RBL_SPAMHAUS" {
         enabled = false;
