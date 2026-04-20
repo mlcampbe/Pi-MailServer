@@ -707,6 +707,7 @@ maxretry = 3
 [postfix]
 enabled = true
 maxretry = 3
+mode = aggressive
 
 [postfix-sasl]
 enabled = true
