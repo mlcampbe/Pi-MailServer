@@ -173,13 +173,14 @@ smtp_sasl_security_options = noanonymous
 smtp_tls_CAfile = /etc/pki/tls/certs/ca-bundle.crt
 
 # Postscreen (Anti-Spam)
-# Disabled to allow rspamd to handle dnsbl
-#postscreen_dnsbl_sites =
-#    byskvcgo5cf6un4qdu5e5tfyza.zen.dq.spamhaus.net*3
-#    bl.spamcop.net*2
-#    b.barracudacentral.org*2
-#postscreen_dnsbl_threshold = 4
-#postscreen_dnsbl_action = enforce
+# Disable to allow rspamd to handle dnsbl
+postscreen_dnsbl_sites =
+    byskvcgo5cf6un4qdu5e5tfyza.zen.dq.spamhaus.net*3
+    bl.spamcop.net*1
+    b.barracudacentral.org*2
+    list.dnswl.org=127.0.[0..255].[1..3]*-2
+postscreen_dnsbl_threshold = 3
+postscreen_dnsbl_action = enforce
 postscreen_greet_action = enforce
 postscreen_pipelining_enable = yes
 postscreen_pipelining_action = enforce
@@ -187,7 +188,7 @@ postscreen_non_smtp_command_enable = yes
 postscreen_non_smtp_command_action = enforce
 postscreen_bare_newline_enable = yes
 postscreen_bare_newline_action = enforce
-postscreen_access_list = permit_mynetworks, cidr:/etc/postfix/postscreen_access.cidr
+postscreen_access_list = permit_mynetworks #, cidr:/etc/postfix/postscreen_access.cidr
 
 queue_directory = /var/spool/postfix
 meta_directory = /etc/postfix
@@ -429,202 +430,124 @@ rbls {
   spamhaus {
     enabled = false;
   }
-  dbl {
+
+  spamhaus_zen_dqs {
+    symbol = "SH_ZEN_DQS";
+    rbl = "$SPAMHAUSKEY.zen.dq.spamhaus.net";
+    checks = ["from", "received"];
+    ipv4 = true;
+    ipv6 = true;
+    returncodes {
+      SH_SBL = "127.0.0.2";
+      SH_CSS = "127.0.0.3";
+      SH_XBL = "127.0.0.4";
+      SH_PBL = "127.0.0.10";
+      SH_PBL_CUSTOMER = "127.0.0.11";
+    }
+  }
+
+  spamhaus_dbl_handshake_dqs {
+    symbol = "SH_DBL_DQS";
+    rbl = "$SPAMHAUSKEY.dbl.dq.spamhaus.net";
+    disable_monitoring = true;
+    ignore_whitelist = true;
+    checks = ["helo", "from", "emails", "replyto", "content_urls"]; 
+    ipv4 = false;
+    ipv6 = false;
+    returncodes {
+      SH_DBL_SPAM = "127.0.1.2";
+      SH_DBL_PHISH = "127.0.1.4";
+      SH_DBL_MALWARE = "127.0.1.5";
+      SH_DBL_BOTNET = "127.0.1.6";
+    }
+  }
+
+  spamhaus_zrd_dqs {
+    symbol = "SH_ZRD_DQS";
+    rbl = "$SPAMHAUSKEY.zrd.dq.spamhaus.net";
+    disable_monitoring = true;
+    checks = ["helo", "from", "emails"];
+    ipv4 = false;
+    ipv6 = false;
+    returncodes {
+      RBL_ZRD_VERY_NEW = "127.0.2.2";
+    }
+  }
+}
+EOF
+
+cat > /etc/rspamd/local.d/rbl_group.conf <<EOF
+symbols {
+    "RBL_ZRD_VERY_NEW" {
+      weight = 7.0;
+      description = "ZRD: Domain is very new (less than 24h)";
+    }
+
+    "SH_DBL_SPAM" {
+        weight = 7.0;
+        description = "Spamhaus DBL: Spam domain";
+    }
+    "SH_DBL_PHISH" {
+        weight = 12.0;
+        description = "Spamhaus DBL: Phishing domain";
+    }
+    "SH_DBL_MALWARE" {
+        weight = 14.0;
+        description = "Spamhaus DBL: Malware domain";
+    }
+
+    "SURBL_DBL_SPAM" {
+        weight = 7.0;
+        description = "Spamhaus DBL: Spam domain";
+    }
+    "SURBL_DBL_PHISH" {
+        weight = 12.0;
+        description = "Spamhaus DBL: Phishing domain";
+    }
+    "SURBL_DBL_MALWARE" {
+        weight = 14.0;
+        description = "Spamhaus DBL: Malware domain";
+    }
+
+    # --- ZEN (IPs) ---
+    "SH_SBL" {
+        weight = 7.0;
+    }
+    "SH_CSS" {
+        weight = 5.0;
+    }
+    "SH_XBL" {
+        weight = 4.0;
+    }
+    "SH_PBL" {
+        weight = 2.0;
+    }
+}
+EOF
+
+cat > /etc/rspamd/local.d/surbl.conf <<EOF
+rules {
+  spamhaus_dbl {
     enabled = false;
   }
 
-  spamhaus_zen {
-    symbol = "DQS_ZEN";
-    rbl = "byskvcgo5cf6un4qdu5e5tfyza.zen.dq.spamhaus.net";
-    ipv4 = true;
-    ipv6 = true;
-    ignore_defaults = true;
-    received = true; # Check the full relay chain
+  spamhaus_dbl_body_dqs {
+    suffix = "$SPAMHAUSKEY.dbl.dq.spamhaus.net";
+    check_from = true;
+    check_helo = true;
+    whitelist_exception = "spamhaus.net";
+    images = true;
     returncodes {
-      DQS_ZEN = "127.0.0.0/24";
+      "SURBL_DBL_SPAM" = "127.0.1.2";
+      "SURBL_DBL_PHISH" = "127.0.1.4";
+      "SURBL_DBL_MALWARE" = "127.0.1.5";
+      "SURBL_DBL_BOTNET" = "127.0.1.6";
+      "SURBL_DBL_ABUSED_SPAM" = "127.0.1.102";
+      "SURBL_DBL_ABUSED_PHISH" = "127.0.1.104";
+      "SURBL_DBL_ABUSED_MALWARE" = "127.0.1.105";
+      "SURBL_DBL_ABUSED_BOTNET" = "127.0.1.106";
     }
   }
-
-  spamhaus_dbl {
-    symbol = "DQS_DBL";
-    rbl = "byskvcgo5cf6un4qdu5e5tfyza.dbl.dq.spamhaus.net";
-    dkim = true;
-    emails = true;
-    urls = true;
-    ignore_defaults = true;
-    returncodes {
-      DQS_DBL = "127.0.1.0/24"
-    }
-  }
-
-   abusix_dnsbls_lasthop {
-     symbol = "RBL_AMI_LASTHOP";
-     rbl = "3d6f50b83a00690815a6a38d0e0db638.combined.mail.abusix.zone";
-     checks = [ "from" ];
-     unknown = false;
-     returncodes {
-       RBL_AMI_POLICY = [ "127.0.0.11", "127.0.0.12" ];
-       RBL_AMI_BLACK = [ "127.0.0.2", "127.0.0.3", "127.0.0.200" ];
-       RBL_AMI_EXPLOIT = [ "127.0.0.4" ];
-      }
-    }
-    abusix_dnsbls_authbl {
-        symbol = "RBL_AMI_AUTHBL";
-        rbl = "3d6f50b83a00690815a6a38d0e0db638.authbl.mail.abusix.zone";
-        checks = [ "from" ];
-        exclude_users = false;
-    }
-    abusix_dnsbls_anyhop {
-        symbol = "RBL_AMI_RCVD";
-        rbl = "3d6f50b83a00690815a6a38d0e0db638.combined.mail.abusix.zone";
-        checks = [ "received" ];
-        unknown = false;
-        returncodes {
-            RBL_AMI_BLACK_RCVD = [ "127.0.0.2", "127.0.0.3", "127.0.0.200" ];
-            RBL_AMI_EXPLOIT_RCVD = "127.0.0.4";
-        }
-    }
-    abusix_dnsbls_noip {
-        symbol = "RBL_AMI_NOIP";
-        rbl = "3d6f50b83a00690815a6a38d0e0db638.noip.mail.abusix.zone";
-        checks = [ "from", "received" ];
-    }
-    abusix_dnsbls_dblack {
-        symbol = "RBL_AMI_DBLACK";
-        rbl = "3d6f50b83a00690815a6a38d0e0db638.dblack.mail.abusix.zone";
-        checks = [ "content_urls", "dkim" ];
-        selector = "urls:get_host";
-    }
-    abusix_dnsbls_nod {
-        symbol = "RBL_AMI_NOD";
-        rbl = "3d6f50b83a00690815a6a38d0e0db638.nod.mail.abusix.zone";
-        checks = [ "content_urls", "dkim", "urls" ];
-    }
-    abusix_dnsbls_emailbl {
-        symbol = "RBL_AMI_EMAILBL"; 
-        rbl = "3d6f50b83a00690815a6a38d0e0db638.emailbl.mail-beta.abusix.zone";
-        selector = "from('mime').lower;from('smtp').lower";
-        checks = ['emails', 'replyto'];
-        hash = "sha1";
-    }
-    abusix_dnsbls_attachments {
-        symbol = "RBL_AMI_ATTACH";
-        rbl = "3d6f50b83a00690815a6a38d0e0db638.attachhash.mail-beta.abusix.zone";
-        selector = "attachments('hex', 'sha1')";
-    }
-    abusix_dnswls_lasthop {
-        symbol = "RWL_AMI_LASTHOP";
-        rbl = "3d6f50b83a00690815a6a38d0e0db638.white.mail.abusix.zone";
-        checks = [ "from" ];
-        is_whitelist = true;        
-    }
-}
-EOF
-
-cat > /etc/rspamd/override.d/rbl_group.conf <<EOF
-symbols {
-    "RBL_SPAMHAUS" {
-        enabled = false;
-    }
-    "RECEIVED_RBL_SPAMHAUS" {
-        enabled = false;
-    }
-    "DBL_SPAMHAUS" {
-        enabled = false;
-    }
-}
-EOF
-
-cat > /etc/rspamd/local.d/groups.conf <<EOF
-group "rbl" {
-    symbols {
-        "DQS_ZEN" {
-            weight = 12.0;
-            exclude_local = false;
-            description = "Spamhaus ZEN IP reputation (SBL/XBL/PBL)";
-        }
-        "DQS_DBL" {
-            weight = 7.0;
-            exclude_local = false;
-            description = "Spamhaus DBL domain reputation";
-        }
-        "RBL_SPAMCOP" {
-          weight = 2.5;
-        }
-        "RBL_BARRACUDA" {
-          weight = 2.0;
-        }
-    }
-}
-
-group "abusix" {
-    description = "Guardian Mail"
-    symbols = {
-        "RBL_AMI_BLACK" {
-            score = 6.5;
-            description = "Delivered by a host in the Guardian Mail Block list";
-        }
-        "RBL_AMI_EXPLOIT" {
-            score = 6.5;
-            description = "Delivered by a host in the Guardian Mail Exploit list";
-        }
-        "RBL_AMI_POLICY" {
-            score = 2.0;
-            description = "Delivered by a host in the Guardian Mail Policy list";
-        }
-        "RBL_AMI_AUTHBL" {
-            score = 15.0;
-            description = "Delivered by a host in the Guardian Mail Authentication block list";
-        }
-        "RBL_AMI_BLACK_RCVD" {
-            score = 3.0;
-            description = "Received via a host in the Guardian Mail Black list";
-        }
-        "RBL_AMI_EXPLOIT_RCVD" {
-            score = 3.0;
-            description = "Received via a host in the Guardian Mail Exploit list";
-        }
-        "RBL_AMI_BLACK_HTTP" {
-            score = 4.5;
-            description = "Message was injected via HTTP from a host in the Guardian Mail Block list";
-        }
-        "RBL_AMI_NOIP" {
-            score = 4.5;
-            description = "Delivered or Received via a host in the Guardian Mail Newly Observed IPs list";
-        }
-        "RWL_AMI_LASTHOP" {
-            score = -1.0;
-            description = "Delivered by a host in the Guardian Mail White list";
-        }
-        "RBL_AMI_DBLACK" {
-            score = 6.5;
-            description = "Message contains a domain listed in the Guardian Mail Block list";
-        }
-        "RBL_AMI_NOD" {
-            score = 2.0;
-            description = "Message contains a domain listed in the Guardian Mail Newly Observed Domains list";
-        }
-        "RBL_AMI_EMAILBL" {
-            score = 4.5;
-            description = "Message contains an email address listed in the Guardian Mail Email block list";
-        }
-        "RBL_AMI_BTC" {
-            score = 6.5;
-            description = "Message contains a Bitcoin wallet address listed in the Guardian Mail BTC Wallet block list";
-        }
-        "RBL_AMI_SHORTURL" {
-            score = 6.5;
-            description = "Message contains a Short URL listed in the Guardian Mail Short URL block list";
-        }
-        "RBL_AMI_DISKURL" {
-            score = 6.5;
-            description = "Message contains a Disk URL listed in the Guardian Mail Disk URL block list";
-        }
-        "RBL_AMI_ATTACH" {
-            score = 4.5;
-            description = "Message contains an attachment listed in the Guardian Mail Attachment block list";
-        }
-    }
 }
 EOF
 
@@ -685,9 +608,10 @@ EOF
 
 cat > /etc/rspamd/local.d/options.inc <<EOF
 dns {
-    nameserver = ["127.0.0.1:5353"];
+    #nameserver = ["127.0.0.1:5353"];
     timeout = 2s;
     retransmits = 2;
+    system_conf = true;
 }
 EOF
 
@@ -813,6 +737,9 @@ server:
     rrset-cache-size: 64m
     qname-minimisation: no
 EOF
+nmcli connection modify "Wired Connection" ipv4.dns "127.0.0.1"
+nmcli connection modify "Wired Connection" ipv4.ignore-auto-dns yes
+nmcli connection up "Wired Connection"
 
 # ----------------------------
 # TLS RENEW HOOK
