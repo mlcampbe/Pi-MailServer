@@ -691,7 +691,7 @@ echo "Configuring Fail2ban..."
 cat > /etc/fail2ban/jail.local <<EOF
 [DEFAULT]
 bantime = 24h
-findtime = 10m
+findtime = 1d
 maxretry = 3
 bantime.increment = true
 bantime.factor = 2
@@ -706,12 +706,11 @@ maxretry = 3
 
 [postfix]
 enabled = true
-maxretry = 5
+maxretry = 3
 
 [postfix-sasl]
 enabled = true
 maxretry = 3
-findtime = 5m
 
 [recidive]
 enabled = true
