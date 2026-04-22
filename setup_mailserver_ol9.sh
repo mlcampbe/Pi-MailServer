@@ -48,9 +48,11 @@ systemctl enable --now firewalld
 # Use port numbers to avoid 'service not found' errors on OL9
 firewall-cmd --permanent --add-service=ssh
 firewall-cmd --permanent --add-service=http
+firewall-cmd --permanent --add-service=imaps
 firewall-cmd --permanent --add-service=smtp
-firewall-cmd --permanent --add-port=587/tcp  # Submission
-firewall-cmd --permanent --add-port=993/tcp  # IMAPS
+firewall-cmd --permanent --add-port=587/tcp
+firewall-cmd --permanent --add-port=993/tcp
+firewall-cmd --permanent --add-port=11334/tcp
 firewall-cmd --reload
 
 semanage port -a -t dns_port_t -p tcp 5353
