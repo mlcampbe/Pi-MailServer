@@ -423,7 +423,7 @@ cat > /etc/rspamd/local.d/redis.conf <<EOF
 servers = "127.0.0.1:6379";
 EOF
 
-cat > /etc/rspamd/override.d/rbl.conf <<EOF
+cat > /etc/rspamd/local.d/rbl.conf <<EOF
 exclude_local = false;
 exclude_users = false;
 default_exclude_users = false;
@@ -581,7 +581,28 @@ cat > /etc/rspamd/local.d/classifier-bayes.conf <<EOF
 backend = "redis";
 min_tokens = 11;
 min_learns = 20;
-autolearn = true;
+
+# Explicitly define the tokenizer
+tokenizer {
+  name = "osb";
+}
+
+# Your detailed autolearn block
+autolearn {
+  spam_threshold = 6.0;
+  junk_threshold = 4.0;
+  ham_threshold = -0.5;
+  check_balance = true;
+  min_balance = 0.9;
+  options {
+    probability_check {
+      spam_min = 0.92;
+      ham_max = 0.08;
+    }
+    logging { enabled = false; }
+  }
+}
+
 statfile { symbol = "BAYES_SPAM"; spam = true; }
 statfile { symbol = "BAYES_HAM"; spam = false; }
 EOF
@@ -738,6 +759,8 @@ server:
     msg-cache-size: 32m
     rrset-cache-size: 64m
     qname-minimisation: no
+    private-domain: "dq.spamhaus.net"
+    private-domain: "mail.abusix.zone"
 EOF
 nmcli connection modify "Wired Connection" ipv4.dns "127.0.0.1"
 nmcli connection modify "Wired Connection" ipv4.ignore-auto-dns yes
