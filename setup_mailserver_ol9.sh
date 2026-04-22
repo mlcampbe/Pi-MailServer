@@ -787,6 +787,8 @@ chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-mail.sh
 # ----------------------------
 # START SERVICES
 # ----------------------------
+restorecon -Rv /etc/postfix /var/spool/postfix /usr/libexec/postfix
+setsebool -P nis_enabled 1
 echo "Restarting Services..."
 systemctl enable --now redis rspamd postfix dovecot fail2ban unbound
 
