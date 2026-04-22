@@ -55,8 +55,8 @@ firewall-cmd --permanent --add-port=993/tcp
 firewall-cmd --permanent --add-port=11334/tcp
 firewall-cmd --reload
 
-semanage port -a -t dns_port_t -p tcp 5353
-semanage port -a -t dns_port_t -p udp 5353
+semanage port -a -t dns_port_t -p tcp 53
+semanage port -a -t dns_port_t -p udp 53
 semanage port -a -t http_port_t -p tcp 11334
 semanage port -a -t http_port_t -p tcp 11335
 
@@ -730,7 +730,7 @@ echo "Configuring Unbound..."
 cat > /etc/unbound/conf.d/pi.conf <<EOF
 server:
     interface: 127.0.0.1
-    port: 5353
+    port: 53
     access-control: 127.0.0.0/8 allow
     do-ip6: no
     prefetch: yes
