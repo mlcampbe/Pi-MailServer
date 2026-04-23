@@ -441,6 +441,8 @@ rbls {
   spamhaus_zen_dqs {
     symbol = "SH_ZEN_DQS";
     rbl = "$SPAMHAUSKEY.zen.dq.spamhaus.net";
+    ignore_defaults = true;
+    disable_monitoring = true;
     checks = ["from", "received"];
     ipv4 = true;
     ipv6 = true;
@@ -456,6 +458,7 @@ rbls {
   spamhaus_dbl_handshake_dqs {
     symbol = "SH_DBL_DQS";
     rbl = "$SPAMHAUSKEY.dbl.dq.spamhaus.net";
+    ignore_defaults = true;
     disable_monitoring = true;
     ignore_whitelist = true;
     checks = ["helo", "from", "emails", "replyto", "content_urls"]; 
@@ -472,6 +475,7 @@ rbls {
   spamhaus_zrd_dqs {
     symbol = "SH_ZRD_DQS";
     rbl = "$SPAMHAUSKEY.zrd.dq.spamhaus.net";
+    ignore_defaults = true;
     disable_monitoring = true;
     checks = ["helo", "from", "emails"];
     ipv4 = false;
@@ -540,6 +544,8 @@ rules {
 
   spamhaus_dbl_body_dqs {
     suffix = "$SPAMHAUSKEY.dbl.dq.spamhaus.net";
+    ignore_defaults = true;
+    disable_monitoring = true;
     check_from = true;
     check_helo = true;
     whitelist_exception = "spamhaus.net";
@@ -765,7 +771,8 @@ server:
     rrset-cache-size: 64m
     qname-minimisation: no
     private-domain: "dq.spamhaus.net"
-    private-domain: "mail.abusix.zone"
+    domain-insecure: "dq.spamhaus.net"
+    domain-insecure: "spamhaus.org"
 EOF
 nmcli connection modify "Wired Connection" ipv4.dns "127.0.0.1"
 nmcli connection modify "Wired Connection" ipv4.ignore-auto-dns yes
