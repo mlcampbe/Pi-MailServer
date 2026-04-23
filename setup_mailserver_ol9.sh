@@ -180,17 +180,22 @@ postscreen_dnsbl_sites =
     byskvcgo5cf6un4qdu5e5tfyza.zen.dq.spamhaus.net*3
     bl.spamcop.net*1
     b.barracudacentral.org*2
-    list.dnswl.org=127.0.[0..255].[1..3]*-2
+    list.dnswl.org=127.0.[0..255].[0..255]*-5
+postscreen_dnsbl_whitelist_threshold = 0
 postscreen_dnsbl_threshold = 3
+postscreen_cache_retention_time = 7d
+postscreen_greet_ttl = 7d
+postscreen_greet_wait = 2s
 postscreen_dnsbl_action = enforce
-postscreen_greet_action = ignore
+postscreen_greet_action = enforce
 postscreen_pipelining_enable = yes
 postscreen_pipelining_action = ignore
 postscreen_non_smtp_command_enable = yes
 postscreen_non_smtp_command_action = ignore
 postscreen_bare_newline_enable = yes
 postscreen_bare_newline_action = ignore
-postscreen_access_list = permit_mynetworks #, cidr:/etc/postfix/postscreen_access.cidr
+postscreen_access_list = permit_mynetworks
+#, cidr:/etc/postfix/postscreen_access.cidr
 
 queue_directory = /var/spool/postfix
 meta_directory = /etc/postfix
@@ -238,7 +243,7 @@ sed -i '/^#dnsblog[[:space:]]\+unix.*dnsblog$/ s/^#//' /etc/postfix/master.cf
 sed -i '/^#tlsproxy[[:space:]]\+unix.*tlsproxy$/ s/^#//' /etc/postfix/master.cf
 
 cat >> /etc/postfix/master.cf <<EOF
-submission inet n - y - - smtpd
+submission inet n - n - - smtpd
  -o smtpd_tls_security_level=encrypt
  -o smtpd_sasl_auth_enable=yes
  -o smtpd_recipient_restrictions=permit_sasl_authenticated,reject
