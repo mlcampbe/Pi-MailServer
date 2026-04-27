@@ -790,6 +790,7 @@ systemctl reload postfix
 systemctl reload dovecot
 EOF
 chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-mail.sh
+systemctl enable --now certbot-renew.timer
 
 # ----------------------------
 # CREATE POSTMASTER ACCOUNT
