@@ -581,6 +581,7 @@ use_score = true
 timeout = 5min;
 expire = 1d;
 max_wait = 1h;
+timeout = 60s;
 EOF
 
 cat > /etc/rspamd/local.d/reputation.conf <<EOF
