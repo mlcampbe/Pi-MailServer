@@ -40,3 +40,6 @@ chmod 700 "$MAILDIR/$USER_PART"
 
 echo "User $FULL_EMAIL added successfully."
 echo "Mail location: $MAILDIR/$USER_PART/Maildir"
+echo "Remember to add "$FULL_EMAIL OK" to the /etc/postfix/relay_recipients file on the backup mailserver"
+echo "and run postmap /etc/postfix/relay_recipients and run systemctl reload postfix"
+
