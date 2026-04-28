@@ -446,6 +446,9 @@ rbls {
   spamhaus {
     enabled = false;
   }
+  mailspike {
+    enabled = false;
+  }
 
   spamhaus_zen_dqs {
     symbol = "SH_ZEN_DQS";
