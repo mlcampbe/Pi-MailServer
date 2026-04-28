@@ -4,6 +4,9 @@ set -e
 # ----------------------------
 # Variables - UPDATE THESE
 # ----------------------------
+# Are we configuring a primary or backup server?
+SERVER_TYPE="primary"
+
 MAILHOST="mail.x.com"
 DOMAIN="${MAILHOST#*.}"
 SMTPUSER="xxxx"
@@ -26,16 +29,11 @@ sudo dnf config-manager --enable ol9_developer_EPEL
 curl -sSL https://rspamd.com/rpm-stable/centos-9/rspamd.repo | tee /etc/yum.repos.d/rspamd.repo
 
 echo "Installing Packages..."
-dnf install -y \
-postfix \
-dovecot dovecot-pigeonhole \
-rspamd redis \
-certbot \
-fail2ban \
-unbound \
-curl \
-policycoreutils-python-utils
-
+packages="postfix rspamd redis certbot fail2ban unbound curl policycoreutils-python-utils"
+if [[ $SERVER_TYPE == "primary" ]]; then
+  packages="${packages} dovecot dovecot-pigeonhole"
+fi
+dnf install -y $packages
 systemctl stop postfix || true
 systemctl stop dovecot || true
 
@@ -63,10 +61,13 @@ semanage port -a -t http_port_t -p tcp 11335
 # ----------------------------
 # TLS CERTIFICATE
 # ----------------------------
-# remove the "-d $DOMAIN" when run on the backup mailserver
 echo "Generating TLS certificate..."
-certbot certonly --standalone -d $MAILHOST -d $DOMAIN --agree-tos \
--m $ADMINEMAIL --non-interactive
+if [[ $SERVER_TYPE == "primary" ]]; then
+  subj="-d $MAILHOST -d $DOMAIN"
+else
+  subj="-d $MAILHOST"
+fi
+certbot certonly --standalone $subj --agree-tos -m $ADMINEMAIL --non-interactive
 
 # ----------------------------
 # Create external mail storage
@@ -193,8 +194,7 @@ postscreen_non_smtp_command_enable = yes
 postscreen_non_smtp_command_action = ignore
 postscreen_bare_newline_enable = yes
 postscreen_bare_newline_action = ignore
-postscreen_access_list = permit_mynetworks
-#, cidr:/etc/postfix/postscreen_access.cidr
+postscreen_access_list = permit_mynetworks, cidr:/etc/postfix/postscreen_access.cidr
 
 queue_directory = /var/spool/postfix
 meta_directory = /etc/postfix
@@ -214,24 +214,25 @@ shlib_directory = /usr/lib64/postfix
 virtual_alias_maps = hash:/etc/postfix/virtual
 EOF
 
-# If configuring a backup mail server run the following commands to reconfig
-# postfix on the backup server.
-# postconf -e "mydestination = localhost.$mydomain, localhost"
-# postconf -e "mynetworks = 127.0.0.0/8"
-# postconf -e "relay_domains = $DOMAIN"
-# postconf -e "smtpd_sasl_auth_enable=no"
-# postconf -e "relay_recipient_maps = hash:/etc/postfix/relay_recipients"
-# postconf -e "smtpd_recipient_restrictions = permit_sasl_authenticated permit_mynetworks reject_unauth_destination reject_unlisted_recipient"
-# postconf -X "smtpd_sasl_type"
-# postconf -X "smtpd_sender_restrictions"
-# postconf -e "transport_maps = hash:/etc/postfix/transport"
-# postconf -X "virtual_alias_maps"
-# postconf -e "virtual_mailbox_domains ="
-# postconf -X "virtual_transport"
-# echo "$DOMAIN  smtp:[primary-ip-addr]" >> /etc/postfix/transport
-# echo "user1@$DOMAIN OK" > /etc/postfix/relay_recipients
-# postmap /etc/postfix/transport
-# postmap /etc/postfix/relay_recipients
+if [[ $SERVER_TYPE == "backup" ]]; then
+  postfix on the backup server.
+  postconf -e "mydestination = localhost.\$mydomain, localhost"
+  postconf -e "mynetworks = 127.0.0.0/8"
+  postconf -e "relay_domains = $DOMAIN"
+  postconf -e "smtpd_sasl_auth_enable=no"
+  postconf -e "relay_recipient_maps = hash:/etc/postfix/relay_recipients"
+  postconf -e "smtpd_recipient_restrictions = permit_sasl_authenticated permit_mynetworks reject_unauth_destination reject_unlisted_recipient"
+  postconf -X "smtpd_sasl_type"
+  postconf -X "smtpd_sender_restrictions"
+  postconf -e "transport_maps = hash:/etc/postfix/transport"
+  postconf -X "virtual_alias_maps"
+  postconf -e "virtual_mailbox_domains ="
+  postconf -X "virtual_transport"
+  echo "$DOMAIN  smtp:[primary-ip-addr]" >> /etc/postfix/transport
+  echo "user1@$DOMAIN OK" > /etc/postfix/relay_recipients
+  postmap /etc/postfix/transport
+  postmap /etc/postfix/relay_recipients
+fi
 
 cat >> /etc/postfix/postscreen_access.cidr <<EOF
 # Google/Gmail Whitelist
@@ -242,16 +243,6 @@ cat >> /etc/postfix/postscreen_access.cidr <<EOF
 172.217.0.0/16     permit
 173.194.0.0/16     permit
 108.177.0.0/16     permit
-
-# Microsoft 365 / Outlook / Exchange Online
-40.92.0.0/15      permit
-40.107.0.0/16     permit
-52.100.0.0/14     permit
-104.47.0.0/17     permit
-
-# Apple iCloud Mail
-17.0.0.0/8        permit
-57.103.64.0/18    permit
 EOF
 
 sed -i '/^smtp[[:space:]]\+inet.*smtpd$/ s/^/#/' /etc/postfix/master.cf
@@ -511,7 +502,6 @@ symbols {
       weight = 7.0;
       description = "ZRD: Domain is very new (less than 24h)";
     }
-
     "SH_DBL_SPAM" {
         weight = 7.0;
         description = "Spamhaus DBL: Spam domain";
@@ -524,7 +514,6 @@ symbols {
         weight = 14.0;
         description = "Spamhaus DBL: Malware domain";
     }
-
     "SURBL_DBL_SPAM" {
         weight = 7.0;
         description = "Spamhaus DBL: Spam domain";
@@ -537,7 +526,6 @@ symbols {
         weight = 14.0;
         description = "Spamhaus DBL: Malware domain";
     }
-
     # --- ZEN (IPs) ---
     "SH_SBL" {
         weight = 7.0;
@@ -658,23 +646,24 @@ profile "default" {
 }
 EOF
 
-cat > /etc/rspamd/local.d/options.inc <<EOF
-# if using a backup server uncomment below lines and set the ip address of the backup server
-# in the local_addrs and set the correct hostnames in the neighbors
-
-# local_addrs = ["127.0.0.1", "::1", "10.0.0.153"];
-# neighbours {
-#    primary { host = "http://mail.mlc1.net:11334"; }
-#    backup { host = "http://mail-backup.mlc1.net:11334"; }
-# }
-
+if [[ $SERVER_TYPE == "primary" ]]; then
+  addrs='local_addrs = ["127.0.0.1", "::1", "backup-server-ip"];'
+else
+  addrs=""
+fi
+optns="$addrs
+neighbours {
+  primary { host = "http://$MAILHOST:11334"; }
+  backup { host = "http://backup-$MAILHOST:11334"; }
+}
 dns {
     #nameserver = ["127.0.0.1:5353"];
     timeout = 2s;
     retransmits = 2;
     system_conf = true;
 }
-EOF
+"
+echo "$optns" > /etc/rspamd/local.d/options.inc
 
 cat > /etc/rspamd/local.d/actions.conf <<EOF
 no_action = 0;
