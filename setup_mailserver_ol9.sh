@@ -63,12 +63,10 @@ semanage port -a -t http_port_t -p tcp 11335
 # ----------------------------
 # TLS CERTIFICATE
 # ----------------------------
+# remove the "-d $DOMAIN" when run on the backup mailserver
 echo "Generating TLS certificate..."
-certbot certonly --standalone \
--d $MAILHOST -d $DOMAIN \
---agree-tos \
--m $ADMINEMAIL \
---non-interactive
+certbot certonly --standalone -d $MAILHOST -d $DOMAIN --agree-tos \
+-m $ADMINEMAIL --non-interactive
 
 # ----------------------------
 # Create external mail storage
@@ -94,7 +92,7 @@ echo "Configuring Postfix..."
 cat > /etc/postfix/main.cf <<EOF
 # Global Settings
 compatibility_level = 3.10
-myhostname = mail.$DOMAIN
+myhostname = $MAILHOST
 mydomain = $DOMAIN
 myorigin = \$mydomain
 
@@ -102,6 +100,7 @@ myorigin = \$mydomain
 inet_interfaces = all
 inet_protocols = ipv4
 mydestination = \$myhostname, localhost.\$mydomain, localhost
+# add internal IP of backup server below
 mynetworks = 127.0.0.0/8
 relay_domains =
 append_dot_mydomain = no
@@ -116,7 +115,7 @@ smtpd_tls_auth_only = yes
 smtpd_tls_cert_file=/etc/letsencrypt/live/$MAILHOST/fullchain.pem
 smtpd_tls_key_file=/etc/letsencrypt/live/$MAILHOST/privkey.pem
 smtpd_tls_security_level = may
-smtp_tls_security_level = encrypt
+smtp_tls_security_level = may
 
 # Modern protocol restrictions (disabling SSLv2, SSLv3, TLS 1.0, and TLS 1.1)
 smtpd_tls_mandatory_protocols = !SSLv2, !SSLv3, !TLSv1, !TLSv1.1
@@ -214,6 +213,25 @@ data_directory = /var/lib/postfix
 shlib_directory = /usr/lib64/postfix
 virtual_alias_maps = hash:/etc/postfix/virtual
 EOF
+
+# If configuring a backup mail server run the following commands to reconfig
+# postfix on the backup server.
+# postconf -e "mydestination = localhost.$mydomain, localhost"
+# postconf -e "mynetworks = 127.0.0.0/8"
+# postconf -e "relay_domains = $DOMAIN"
+# postconf -e "smtpd_sasl_auth_enable=no"
+# postconf -e "relay_recipient_maps = hash:/etc/postfix/relay_recipients"
+# postconf -e "smtpd_recipient_restrictions = permit_sasl_authenticated permit_mynetworks reject_unauth_destination reject_unlisted_recipient"
+# postconf -X "smtpd_sasl_type"
+# postconf -X "smtpd_sender_restrictions"
+# postconf -e "transport_maps = hash:/etc/postfix/transport"
+# postconf -X "virtual_alias_maps"
+# postconf -e "virtual_mailbox_domains ="
+# postconf -X "virtual_transport"
+# echo "$DOMAIN  smtp:[primary-ip-addr]" >> /etc/postfix/transport
+# echo "user1@$DOMAIN OK" > /etc/postfix/relay_recipients
+# postmap /etc/postfix/transport
+# postmap /etc/postfix/relay_recipients
 
 cat >> /etc/postfix/postscreen_access.cidr <<EOF
 # Google/Gmail Whitelist
@@ -578,10 +596,9 @@ EOF
 cat > /etc/rspamd/local.d/greylist.conf <<EOF
 enabled = true;
 use_score = true
-timeout = 5min;
+timeout = 2min;
 expire = 1d;
 max_wait = 1h;
-timeout = 60s;
 EOF
 
 cat > /etc/rspamd/local.d/reputation.conf <<EOF
@@ -642,6 +659,15 @@ profile "default" {
 EOF
 
 cat > /etc/rspamd/local.d/options.inc <<EOF
+# if using a backup server uncomment below lines and set the ip address of the backup server
+# in the local_addrs and set the correct hostnames in the neighbors
+
+# local_addrs = ["127.0.0.1", "::1", "10.0.0.153"];
+# neighbours {
+#    primary { host = "http://mail.mlc1.net:11334"; }
+#    backup { host = "http://mail-backup.mlc1.net:11334"; }
+# }
+
 dns {
     #nameserver = ["127.0.0.1:5353"];
     timeout = 2s;
